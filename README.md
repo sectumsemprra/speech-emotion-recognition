@@ -116,6 +116,13 @@ async function predictEmotion(audioBuffer) {
 - Node.js + Express
 - Multer for file uploads
 - CORS for cross-origin requests
+- install ffmpeg 8.0 full build
+- 
+**MODEL integration:**
+- run the provided .ipynb file in colab 
+- use the url provided in the last cell 
+- replace it in the /backend/emotion_detection.py url 
+- keep the last cell running 
 
 ## 📱 Browser Support
 
