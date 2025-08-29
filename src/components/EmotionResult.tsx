@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Frown, Smile, Meh, AlertCircle, Angry } from 'lucide-react';
+import { Heart, Frown, Smile, Meh, AlertCircle, Angry, Brain } from 'lucide-react';
 import { EmotionData } from '../pages/DetectEmotion';
 
 interface EmotionResultProps {

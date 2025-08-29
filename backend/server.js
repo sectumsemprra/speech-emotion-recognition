@@ -99,4 +99,3 @@ app.listen(PORT, () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🎭 Predict endpoint: http://localhost:${PORT}/predict`);
 });
-</action>
