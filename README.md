@@ -23,19 +23,19 @@ npm run dev
 
 The frontend will run on `http://localhost:5173`
 
-### Backend (Node.js + Express)
+### Backend (FastAPI + Python)
 ```bash
 # Navigate to backend directory
 cd backend
 
-# Install dependencies
-npm install
+# Install Python dependencies
+pip install -r requirements.txt
 
-# Start the API server
-npm run dev
+# Start the FastAPI server
+python emotion_service.py
 ```
 
-The backend API will run on `http://localhost:3001`
+The backend API will run on `http://localhost:5000`
 
 ## 📁 Project Structure
 
@@ -51,8 +51,9 @@ The backend API will run on `http://localhost:3001`
 │   │   └── App.tsx                  # Main app with routing
 │   └── package.json                 # Frontend dependencies
 ├── backend/
-│   ├── server.js                   # Express API server
-│   └── package.json                # Backend dependencies
+│   ├── emotion_service.py          # FastAPI emotion detection service
+│   ├── local_emotion_detection.py  # Standalone emotion detection script
+│   └── requirements.txt            # Python dependencies
 └── README.md                       # This file
 ```
 
@@ -81,24 +82,26 @@ Upload audio file for emotion detection.
 ### `GET /health`
 Check API status.
 
+### `GET /info`
+Get service information.
+
+### `GET /docs`
+FastAPI automatic documentation (Swagger UI).
+
 ## 🔬 Machine Learning Integration
 
-The current backend uses mock emotion detection for demonstration. To integrate real ML model:
+The backend now uses the **emotion2vec_plus_large** model from FunASR for real emotion detection. The model is loaded automatically when the service starts.
 
-1. Replace the `mockEmotionDetection()` function in `backend/server.js`
-2. Add your trained model loading and prediction logic
-3. Install required ML libraries (e.g., TensorFlow.js, ONNX Runtime)
+**Model Details:**
+- **Model**: emotion2vec_plus_large from FunASR
+- **Capabilities**: Multi-class emotion recognition from speech
+- **Input**: Audio files (WAV, MP3, etc.)
+- **Output**: Emotion classification with confidence scores
 
-**Example integration points:**
-```javascript
-// In server.js, replace mockEmotionDetection with:
-async function predictEmotion(audioBuffer) {
-  // Load your trained model
-  // Process audio features
-  // Run inference
-  // Return prediction
-}
-```
+**To use a different model:**
+1. Modify `emotion_service.py` 
+2. Replace the model loading in the `load_model()` function
+3. Update the prediction logic in `detect_emotion_from_file()`
 
 ## 🎨 Design Features
 
@@ -118,16 +121,10 @@ async function predictEmotion(audioBuffer) {
 - Lucide React for icons
 
 **Backend:**
-- Node.js + Express
-- Multer for file uploads
-- CORS for cross-origin requests
-- install ffmpeg 8.0 full build
-- 
-**MODEL integration:**
-- run the provided .ipynb file in colab 
-- use the url provided in the last cell 
-- replace it in the /backend/emotion_detection.py url 
-- keep the last cell running 
+- FastAPI + Python
+- FunASR emotion2vec_plus_large model
+- Automatic API documentation
+- CORS enabled for frontend integration 
 
 ## 📱 Browser Support
 
