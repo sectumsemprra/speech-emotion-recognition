@@ -13,6 +13,9 @@ A full-stack application for real-time speech emotion detection using React fron
 
 ### Frontend (React + Vite)
 ```bash
+# Navigate to frontend directory
+cd frontend
+
 # Install dependencies and start development server
 npm install
 npm run dev
@@ -37,18 +40,20 @@ The backend API will run on `http://localhost:3001`
 ## 📁 Project Structure
 
 ```
-├── src/
-│   ├── pages/
-│   │   ├── Landing.tsx          # Landing page with hero section
-│   │   └── DetectEmotion.tsx    # Main emotion detection interface
-│   ├── components/
-│   │   ├── AudioRecorder.tsx    # Audio recording component
-│   │   └── EmotionResult.tsx    # Emotion results display
-│   └── App.tsx                  # Main app with routing
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Landing.tsx          # Landing page with hero section
+│   │   │   └── DetectEmotion.tsx    # Main emotion detection interface
+│   │   ├── components/
+│   │   │   ├── AudioRecorder.tsx    # Audio recording component
+│   │   │   └── EmotionResult.tsx    # Emotion results display
+│   │   └── App.tsx                  # Main app with routing
+│   └── package.json                 # Frontend dependencies
 ├── backend/
-│   ├── server.js               # Express API server
-│   └── package.json            # Backend dependencies
-└── README.md                   # This file
+│   ├── server.js                   # Express API server
+│   └── package.json                # Backend dependencies
+└── README.md                       # This file
 ```
 
 ## 🔧 API Endpoints
