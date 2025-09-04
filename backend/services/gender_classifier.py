@@ -4,7 +4,7 @@ Gender Classification Module
 Implements gender classification using DSP features and threshold-based classification
 """
 
-from backend.services import dsp_preprocess
+from .dsp_preprocess import dsp_preprocess
 import numpy as np
 from typing import Dict, Tuple, Any
 import logging
