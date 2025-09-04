@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Landing from './pages/Landing';
 import DetectEmotion from './pages/DetectEmotion';
+import DetectGender from './pages/DetectGender';
 
 function App() {
   return (
@@ -10,6 +11,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/detect" element={<DetectEmotion />} />
+          <Route path="/gender" element={<DetectGender />} />
         </Routes>
       </div>
     </Router>
