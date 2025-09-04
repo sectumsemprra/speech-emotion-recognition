@@ -152,8 +152,9 @@ async def predict_emotion(audio: UploadFile = File(...)):
         if audio.content_type and audio.content_type not in allowed_types:
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+        # Save uploaded file temporarily with original extension
+        file_ext = os.path.splitext(audio.filename)[1] or '.wav'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)
             temp_path = temp_file.name
@@ -198,8 +199,9 @@ async def classify_gender_endpoint(audio: UploadFile = File(...)):
         if audio.content_type and audio.content_type not in allowed_types:
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+        # Save uploaded file temporarily with original extension
+        file_ext = os.path.splitext(audio.filename)[1] or '.wav'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)
             temp_path = temp_file.name

@@ -25,3 +25,7 @@ dist-ssr
 .env
 .bolt
 venv
+
+*_pycache_/*
+.pytest_cache
+*.egg-info
