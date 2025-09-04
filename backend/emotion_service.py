@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 import uvicorn
 from pyngrok import ngrok
 from services.gender_classifier import classify_gender
-from services.dsp_preprocessing import dsp_preprocess
+from services.dsp_preprocess import dsp_preprocess
 from fastapi.staticfiles import StaticFiles
 
 # Configure logging
