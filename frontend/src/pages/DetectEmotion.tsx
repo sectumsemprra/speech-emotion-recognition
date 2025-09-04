@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import AudioRecorder from '../components/AudioRecorder';
 import EmotionResult from '../components/EmotionResult';
-import GenderResult, { GenderData } from '../components/GenderResult';
+import GenderResult from '../components/GenderResult';
 import { ArrowLeft, Brain, Users } from 'lucide-react';
+import { GenderData } from '../pages/DetectGender';
 
 export interface EmotionData {
   emotion: string;
@@ -56,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = 'https://516bd481df3d.ngrok-free.app';
+const BASE_URL = "https://0496351ea3e2.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -101,6 +102,7 @@ const DetectEmotion = () => {
         }
       } catch (e) {
         // Fallback silently to built-ins
+        console.log(e);
         if (!cancelled) {
           setFilterPresets(FALLBACK_PRESETS);
           setSelectedPreset('telephone');
@@ -148,7 +150,12 @@ const DetectEmotion = () => {
     setGenderResult(null);
 
     try {
-      const promises: Array<Promise<{ type: 'emotion' | 'gender'; data: any }>> = [];
+      const promises: Array<
+        Promise<
+          | { type: 'emotion'; data: EmotionData }
+          | { type: 'gender'; data: GenderData }
+        >
+      > = [];
 
       const preset = filterPresets[selectedPreset];
       const queryParams = buildQueryFromPreset(preset).toString();
@@ -208,9 +215,13 @@ const DetectEmotion = () => {
         setGenderResult({
           gender: 'unknown',
           confidence: 0,
-          method: 'error',
-          scores: { male_score: 0, female_score: 0 },
-          all_features: {},
+          probabilities: { male: 0, female: 0 },
+          features_used: {
+            f0_mean: 0,
+            spectral_centroid: 0,
+            f1_approx: 0,
+            f2_approx: 0
+          }
         });
       }
     } finally {
