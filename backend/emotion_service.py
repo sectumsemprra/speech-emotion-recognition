@@ -17,6 +17,7 @@ import uvicorn
 from pyngrok import ngrok
 from services.gender_classifier import classify_gender
 from services.dsp_preprocess import dsp_preprocess
+from services.emotion_timeline import compute_emotion_timeline
 from fastapi.staticfiles import StaticFiles
 
 from services.dsp_filters import preprocess_audio_file, get_filter_info
@@ -68,13 +69,15 @@ def detect_emotion_from_file(
         preemph_alpha=0.97,
         agc_target_rms=0.1,
     )
+
+    timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
     
     try:
         
-        logger.info(f"Processing audio file: {audio_file_path}")
+        logger.info(f"Processing audio file: {processed_wav}")
         
         # Apply DSP preprocessing if requested
-        processed_audio_path = audio_file_path
+        processed_audio_path = processed_wav
         filter_applied = False
         filter_info = {}
         
@@ -147,7 +150,8 @@ def detect_emotion_from_file(
             "dsp_report": dsp_report,
             "artifacts": {
                 "processed_wav": processed_url,
-                "plots": artifact_urls
+                "plots": artifact_urls,
+                "emotion_timeline": timeline_report
             }
         }
         
