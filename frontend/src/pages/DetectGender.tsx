@@ -7,16 +7,20 @@ import { ArrowLeft, User } from 'lucide-react';
 export interface GenderData {
   gender: string;
   confidence: number;
-  probabilities: {
-    male: number;
-    female: number;
+  method?: string;
+  scores: {
+    male_score: number;
+    female_score: number;
   };
-  features_used: {
-    f0_mean: number;
-    spectral_centroid: number;
-    f1_approx: number;
-    f2_approx: number;
+  feature_analysis: {
+    f0_hz: number;
+    spectral_centroid_hz: number;
+    f1_hz: number;
+    f2_hz: number;
+    feature_votes?: any;
+    feature_confidences?: any;
   };
+  all_features: Record<string, number>;
 }
 
 const DetectGender = () => {

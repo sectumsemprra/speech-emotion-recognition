@@ -57,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = "https://0496351ea3e2.ngrok-free.app";
+const BASE_URL = "https://78ce972884a3.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -215,13 +215,15 @@ const DetectEmotion = () => {
         setGenderResult({
           gender: 'unknown',
           confidence: 0,
-          probabilities: { male: 0, female: 0 },
-          features_used: {
-            f0_mean: 0,
-            spectral_centroid: 0,
-            f1_approx: 0,
-            f2_approx: 0
-          }
+          method: 'error',
+          scores: { male_score: 0, female_score: 0 },
+          feature_analysis: {
+            f0_hz: 0,
+            spectral_centroid_hz: 0,
+            f1_hz: 0,
+            f2_hz: 0
+          },
+          all_features: {}
         });
       }
     } finally {
