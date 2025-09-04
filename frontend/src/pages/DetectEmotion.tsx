@@ -25,7 +25,8 @@ const DetectEmotion = () => {
     setEmotionResult(null);
     setGenderResult(null);
 
-    const baseUrl = 'http://localhost:5000';
+    // const baseUrl = 'http://localhost:5000';
+    const baseUrl = "https://3ed821f54e70.ngrok-free.app"
     
     try {
       // Create separate FormData for each request to avoid cloning issues
