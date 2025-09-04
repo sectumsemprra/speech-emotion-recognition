@@ -6,6 +6,7 @@ Implements DSP functions manually to reduce dependency on external libraries
 
 import numpy as np
 import soundfile as sf  # Only for audio loading
+import librosa  # Fallback for unsupported formats
 from typing import Dict, List, Tuple, Any
 import logging
 
@@ -41,8 +42,14 @@ class ManualDSPProcessor:
             
             return y, sr
         except Exception as e:
-            logger.error(f"Error loading audio: {e}")
-            raise
+            # soundfile failed, try librosa for broader format support (WebM, MP4, etc.)
+            try:
+                logger.warning(f"soundfile failed ({e}), trying librosa for {audio_path}")
+                y, sr = librosa.load(audio_path, sr=self.sample_rate, mono=True)
+                return y, sr
+            except Exception as e2:
+                logger.error(f"Both soundfile and librosa failed: {e}, {e2}")
+                raise RuntimeError(f"Could not load audio file with soundfile ({e}) or librosa ({e2})")
     
     def _simple_resample(self, y: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
         """Simple resampling using linear interpolation"""

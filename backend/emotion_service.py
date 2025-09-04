@@ -153,7 +153,21 @@ async def predict_emotion(audio: UploadFile = File(...)):
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
         # Save uploaded file temporarily with original extension
-        file_ext = os.path.splitext(audio.filename)[1] or '.wav'
+        file_ext = os.path.splitext(audio.filename)[1]
+        if not file_ext:
+            # If no extension, use content-type to determine appropriate extension
+            if audio.content_type:
+                if 'webm' in audio.content_type:
+                    file_ext = '.webm'
+                elif 'mp4' in audio.content_type:
+                    file_ext = '.mp4'
+                elif 'mpeg' in audio.content_type:
+                    file_ext = '.mp3'
+                else:
+                    file_ext = '.wav'
+            else:
+                file_ext = '.wav'
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)
@@ -194,13 +208,27 @@ async def classify_gender_endpoint(audio: UploadFile = File(...)):
         if not audio.filename:
             raise HTTPException(status_code=400, detail="No file selected")
         
-        # Check file type (optional validation)
+        # Check file type (optio, nal validation)
         allowed_types = ['audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/webm']
         if audio.content_type and audio.content_type not in allowed_types:
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
         # Save uploaded file temporarily with original extension
-        file_ext = os.path.splitext(audio.filename)[1] or '.wav'
+        file_ext = os.path.splitext(audio.filename)[1]
+        if not file_ext:
+            # If no extension, use content-type to determine appropriate extension
+            if audio.content_type:
+                if 'webm' in audio.content_type:
+                    file_ext = '.webm'
+                elif 'mp4' in audio.content_type:
+                    file_ext = '.mp4'
+                elif 'mpeg' in audio.content_type:
+                    file_ext = '.mp3'
+                else:
+                    file_ext = '.wav'
+            else:
+                file_ext = '.wav'
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)

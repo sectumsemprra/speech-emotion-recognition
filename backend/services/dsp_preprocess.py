@@ -2,6 +2,7 @@
 import os, time, math
 import numpy as np
 import soundfile as sf
+import librosa
 from fractions import Fraction
 from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple
@@ -168,10 +169,17 @@ def dsp_preprocess(
     out_dir = _mk_session_dir(audio_path)
     artifacts: List[str] = []
 
-    # 1) Load + mono
-    x, fs_in = sf.read(audio_path)
-    if x.ndim > 1:
-        x = np.mean(x, axis=1)
+    # 1) Load + mono - try soundfile first, fallback to librosa for unsupported formats
+    try:
+        x, fs_in = sf.read(audio_path)
+        if x.ndim > 1:
+            x = np.mean(x, axis=1)
+    except Exception as e:
+        # soundfile failed, try librosa for broader format support (WebM, MP4, etc.)
+        try:
+            x, fs_in = librosa.load(audio_path, sr=None, mono=True)
+        except Exception as e2:
+            raise RuntimeError(f"Could not load audio file with soundfile ({e}) or librosa ({e2})")
 
     # 2) Silence trimming (energy-based)
     x_trim = _trim_silence(x, fs_in)
