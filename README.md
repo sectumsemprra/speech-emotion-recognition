@@ -13,6 +13,9 @@ A full-stack application for real-time speech emotion detection using React fron
 
 ### Frontend (React + Vite)
 ```bash
+# Navigate to frontend directory
+cd frontend
+
 # Install dependencies and start development server
 npm install
 npm run dev
