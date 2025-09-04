@@ -9,12 +9,16 @@ import json
 import tempfile
 import logging
 from typing import Dict, Any
+import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 from pyngrok import ngrok
 from services.gender_classifier import classify_gender
+from services.dsp_preprocessing import dsp_preprocess
+from fastapi.staticfiles import StaticFiles
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,13 +47,22 @@ def detect_emotion_from_file(audio_file_path: str) -> Dict[str, Any]:
     if model is None:
         raise RuntimeError("Model not loaded")
     
+    dsp_report, processed_wav, artifacts = dsp_preprocess(
+        audio_path=audio_file_path,
+        fs_target=16000,
+        apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+        quant_bits=8,
+        use_mu_law=True,
+        preemph_alpha=0.97,
+        agc_target_rms=0.1,
+    )
+    
     try:
-        import numpy as np
         
         logger.info(f"Processing audio file: {audio_file_path}")
         
         # Run model inference
-        result = model.generate(audio_file_path, granularity="utterance")
+        result = model.generate(processed_wav, granularity="utterance")
         data = result[0]
         
         # Extract emotions and scores
@@ -75,10 +88,18 @@ def detect_emotion_from_file(audio_file_path: str) -> Dict[str, Any]:
         sorted_emotions = sorted(emotion_pairs, key=lambda x: x[1], reverse=True)
         top_emotions = [{"emotion": e, "score": float(s)} for e, s in sorted_emotions]
         
+        artifact_urls = [f"/artifacts/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)}" for p in artifacts]
+        processed_url = f"/artifacts/{os.path.basename(os.path.dirname(processed_wav))}/{os.path.basename(processed_wav)}"
+
         return {
             "emotion": best_emotion,
             "confidence": confidence,
-            "topEmotions": top_emotions
+            "topEmotions": top_emotions,
+            "dsp_report": dsp_report,
+            "artifacts": {
+                "processed_wav": processed_url,
+                "plots": artifact_urls
+            }
         }
         
     except Exception as e:
@@ -91,6 +112,12 @@ app = FastAPI(
     description="A FastAPI service for speech emotion recognition using emotion2vec_plus_large model",
     version="1.0.0"
 )
+
+# Serve generated plots & processed audio
+if not os.path.exists("artifacts"):
+    os.makedirs("artifacts", exist_ok=True)
+app.mount("/artifacts", StaticFiles(directory="artifacts"), name="artifacts")
+
 
 # Add CORS middleware
 app.add_middleware(
@@ -218,7 +245,18 @@ async def service_info():
             "/classify-gender": "POST - Gender classification (multipart/form-data with 'audio' file)",
             "/info": "GET - Service information",
             "/docs": "GET - API documentation (Swagger UI)"
+        },
+        "dsp_preprocessing": {
+            "steps": [
+                "silence_trim (STE)", "anti_alias + resample", "pre_emphasis", "AGC (RMS normalize)",
+                "FIR LPF (convolution)", "DFT/IDFT (duality)", "STFT OLA (PR error)",
+                "Hilbert envelope/inst. freq", "window leakage demo", "quantization (μ-law, SQNR)",
+                "FFT vs time-domain convolution speed", "impulse/step responses", "filter freq/phase/group delay",
+                "linearity test (sinusoidal fidelity)"
+            ],
+            "artifacts_served_at": "/artifacts"
         }
+
     }
 
 @app.on_event("startup")

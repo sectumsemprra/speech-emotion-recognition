@@ -4,6 +4,7 @@ Gender Classification Module
 Implements gender classification using DSP features and threshold-based classification
 """
 
+from backend.services import dsp_preprocess
 import numpy as np
 from typing import Dict, Tuple, Any
 import logging
@@ -274,6 +275,16 @@ def classify_gender(audio_path: str, method: str = 'auto') -> Dict[str, Any]:
     Returns:
         Dictionary with gender classification results
     """
+    dsp_report, processed_wav, artifacts = dsp_preprocess(
+        audio_path=audio_path,
+        fs_target=16000,
+        apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+        quant_bits=8,
+        use_mu_law=True,    
+        preemph_alpha=0.97,
+        agc_target_rms=0.1,
+    )
+
     if method == 'threshold':
         classifier = ThresholdGenderClassifier()
     elif method == 'ml':
@@ -281,4 +292,4 @@ def classify_gender(audio_path: str, method: str = 'auto') -> Dict[str, Any]:
     else:  # auto
         classifier = MLGenderClassifier()  # Will fallback to threshold if no ML model
     
-    return classifier.classify_gender(audio_path)
+    return classifier.classify_gender(audio_path=processed_wav)
