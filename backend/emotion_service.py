@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # Global model variable
 model = None
 
+NGROK_AUTH = os.getenv("NGROK_AUTH", "31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
+
 def load_model():
     """Load the emotion detection model"""
     global model
@@ -277,7 +279,7 @@ if __name__ == '__main__':
     print("🔗 Health check: http://localhost:5000/health")
     print("🎭 Emotion detection: POST /predict")
     print("👥 Gender classification: POST /classify-gender")
-    ngrok.set_auth_token("31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
+    ngrok.set_auth_token(NGROK_AUTH)
 
     public_url = ngrok.connect(5000)  
     print("🔗 Public URL:", public_url)
