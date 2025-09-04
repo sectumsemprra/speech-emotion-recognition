@@ -1,6 +1,5 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
-import { Mic, Waves, Brain, ArrowRight } from 'lucide-react';
+import { Mic, Waves, Brain, ArrowRight, Users } from 'lucide-react';
 
 const Landing = () => {
   return (
@@ -18,20 +17,20 @@ const Landing = () => {
           </div>
           
           <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight">
-            Emotion
+            Speech
             <span className="block bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Detection
+              Analysis
             </span>
           </h1>
           
           <p className="text-xl md:text-2xl text-blue-100 mb-8 max-w-2xl mx-auto leading-relaxed">
-            Analyze emotions in real-time using advanced AI technology. 
-            Record your voice and discover the emotional patterns in your speech.
+            Analyze emotions and gender from speech using advanced DSP and AI technology. 
+            Record your voice and discover the patterns in your speech using digital signal processing.
           </p>
         </div>
 
         {/* Features */}
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
+        <div className="grid md:grid-cols-4 gap-6 mb-12">
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
             <Mic className="w-8 h-8 text-blue-400 mb-4 mx-auto" />
             <h3 className="text-lg font-semibold text-white mb-2">Record Audio</h3>
@@ -39,15 +38,21 @@ const Landing = () => {
           </div>
           
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-            <Waves className="w-8 h-8 text-purple-400 mb-4 mx-auto" />
-            <h3 className="text-lg font-semibold text-white mb-2">AI Analysis</h3>
-            <p className="text-blue-100 text-sm">Advanced machine learning algorithms analyze voice patterns</p>
+            <Brain className="w-8 h-8 text-indigo-400 mb-4 mx-auto" />
+            <h3 className="text-lg font-semibold text-white mb-2">Emotion Detection</h3>
+            <p className="text-blue-100 text-sm">AI-powered emotion recognition with confidence scores</p>
           </div>
           
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-            <Brain className="w-8 h-8 text-indigo-400 mb-4 mx-auto" />
-            <h3 className="text-lg font-semibold text-white mb-2">Instant Results</h3>
-            <p className="text-blue-100 text-sm">Get emotion predictions with confidence scores immediately</p>
+            <Users className="w-8 h-8 text-pink-400 mb-4 mx-auto" />
+            <h3 className="text-lg font-semibold text-white mb-2">Gender Classification</h3>
+            <p className="text-blue-100 text-sm">DSP-based gender analysis with feature breakdown</p>
+          </div>
+          
+          <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+            <Waves className="w-8 h-8 text-purple-400 mb-4 mx-auto" />
+            <h3 className="text-lg font-semibold text-white mb-2">DSP Features</h3>
+            <p className="text-blue-100 text-sm">Advanced signal processing: MFCCs, formants, pitch analysis</p>
           </div>
         </div>
 

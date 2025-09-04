@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 from pyngrok import ngrok
+from services.gender_classifier import classify_gender
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -155,16 +156,66 @@ async def predict_emotion(audio: UploadFile = File(...)):
             }
         )
 
+@app.post("/classify-gender")
+async def classify_gender_endpoint(audio: UploadFile = File(...)):
+    """Classify gender from uploaded audio file using DSP features"""
+    try:
+        # Validate file
+        if not audio.filename:
+            raise HTTPException(status_code=400, detail="No file selected")
+        
+        # Check file type (optional validation)
+        allowed_types = ['audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/webm']
+        if audio.content_type and audio.content_type not in allowed_types:
+            logger.warning(f"Unusual audio type: {audio.content_type}")
+        
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+            content = await audio.read()
+            temp_file.write(content)
+            temp_path = temp_file.name
+        
+        try:
+            # Run gender classification
+            result = classify_gender(temp_path, method='auto')
+            logger.info(f"Gender classified: {result['gender']} (confidence: {result.get('confidence', 0):.2f})")
+            return result
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in gender classification endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "gender": "unknown",
+                "confidence": 0.0,
+                "method": "error"
+            }
+        )
+
 @app.get("/info")
 async def service_info():
     """Get service information"""
     return {
-        "service": "Local Emotion Detection Service",
+        "service": "Local Emotion Detection & Gender Classification Service",
         "version": "1.0.0",
-        "model": "emotion2vec_plus_large",
+        "models": {
+            "emotion": "emotion2vec_plus_large",
+            "gender": "DSP-based threshold classifier"
+        },
         "endpoints": {
             "/health": "GET - Health check",
             "/predict": "POST - Emotion detection (multipart/form-data with 'audio' file)",
+            "/classify-gender": "POST - Gender classification (multipart/form-data with 'audio' file)",
             "/info": "GET - Service information",
             "/docs": "GET - API documentation (Swagger UI)"
         }
@@ -173,18 +224,23 @@ async def service_info():
 @app.on_event("startup")
 async def startup_event():
     """Load model when service starts"""
-    logger.info("🚀 Starting Local Emotion Detection Service...")
+    logger.info("🚀 Starting Local Emotion Detection & Gender Classification Service...")
     if load_model():
         logger.info("🎭 Emotion Detection Service is ready!")
+        logger.info("👥 Gender Classification Service is ready!")
     else:
-        logger.error("❌ Failed to load model. Service will not work properly.")
+        logger.error("❌ Failed to load emotion model. Emotion detection will not work properly.")
+        logger.info("👥 Gender Classification Service is still available (DSP-based).")
 
 if __name__ == '__main__':
-    print("🚀 Starting Local Emotion Detection Service...")
+    print("🚀 Starting Local Emotion Detection & Gender Classification Service...")
     print("📡 Server will be available at: http://localhost:5000")
     print("📖 API documentation: http://localhost:5000/docs")
     print("🔗 Health check: http://localhost:5000/health")
-    
+    print("🎭 Emotion detection: POST /predict")
+    print("👥 Gender classification: POST /classify-gender")
+    ngrok.set_auth_token("31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
+
     public_url = ngrok.connect(5000)  
     print("🔗 Public URL:", public_url)
     uvicorn.run(
