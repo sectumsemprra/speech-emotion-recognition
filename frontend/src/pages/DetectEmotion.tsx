@@ -25,7 +25,7 @@ const DetectEmotion = () => {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.wav');
 
-      const response = await fetch('http://localhost:3001/predict', {
+      const response = await fetch('http://localhost:5000/predict', {
         method: 'POST',
         body: formData,
       });
