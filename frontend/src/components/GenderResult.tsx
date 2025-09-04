@@ -90,11 +90,11 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
               <div className="w-24 bg-white/10 rounded-full h-2">
                 <div 
                   className="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${data.probabilities.male * 100}%` }}
+                  style={{ width: `${(data.scores.male_score || 0) * 100}%` }}
                 ></div>
               </div>
               <span className="text-blue-100 text-sm w-12 text-right">
-                {(data.probabilities.male * 100).toFixed(1)}%
+                {((data.scores.male_score || 0) * 100).toFixed(1)}%
               </span>
             </div>
           </div>
@@ -108,11 +108,11 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
               <div className="w-24 bg-white/10 rounded-full h-2">
                 <div 
                   className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${data.probabilities.female * 100}%` }}
+                  style={{ width: `${(data.scores.female_score || 0) * 100}%` }}
                 ></div>
               </div>
               <span className="text-blue-100 text-sm w-12 text-right">
-                {(data.probabilities.female * 100).toFixed(1)}%
+                {((data.scores.female_score || 0) * 100).toFixed(1)}%
               </span>
             </div>
           </div>
@@ -129,7 +129,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Fundamental Frequency</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.features_used.f0_mean)}
+              {formatFrequency(data.feature_analysis.f0_hz)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Pitch of voice (key indicator)
@@ -139,7 +139,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Spectral Centroid</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.features_used.spectral_centroid)}
+              {formatFrequency(data.feature_analysis.spectral_centroid_hz)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Voice brightness measure
@@ -149,7 +149,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">First Formant (F1)</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.features_used.f1_approx)}
+              {formatFrequency(data.feature_analysis.f1_hz)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Vocal tract resonance
@@ -159,7 +159,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Second Formant (F2)</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.features_used.f2_approx)}
+              {formatFrequency(data.feature_analysis.f2_hz)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Vowel characteristics

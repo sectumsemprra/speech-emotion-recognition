@@ -4,10 +4,12 @@ Gender Classification Module
 Implements gender classification using DSP features and threshold-based classification
 """
 
+from .dsp_preprocess import dsp_preprocess
 import numpy as np
 from typing import Dict, Tuple, Any
 import logging
 from .dsp_features import extract_gender_relevant_features
+from .manual_dsp import extract_gender_relevant_features_manual
 
 logger = logging.getLogger(__name__)
 
@@ -17,23 +19,25 @@ class ThresholdGenderClassifier:
     Based on typical acoustic differences between male and female speech
     """
     
-    def __init__(self):
-        # Typical thresholds based on research literature
-        # These can be adjusted based on your data
+    def __init__(self, use_manual_dsp: bool = True):
+        # Adjusted thresholds based on broader research and testing
+        # These are more conservative to reduce female bias
         self.thresholds = {
-            'f0_mean': 165,  # Hz - fundamental frequency threshold
-            'formant_f1_mean': 730,  # Hz - first formant
-            'formant_f2_mean': 1090,  # Hz - second formant
-            'spectral_centroid': 2000,  # Hz - spectral centroid
+            'f0_mean': 140,  # Hz - lowered from 165 to be less biased toward female
+            'formant_f1_mean': 600,  # Hz - lowered from 730
+            'formant_f2_mean': 1200,  # Hz - raised from 1090  
+            'spectral_centroid': 1500,  # Hz - lowered from 2000
         }
         
-        # Weights for different features in final decision
+        # More balanced weights - reduced F0 dominance
         self.feature_weights = {
-            'f0_mean': 0.4,  # F0 is most important for gender
-            'formant_f1_mean': 0.2,
-            'formant_f2_mean': 0.2,
-            'spectral_centroid': 0.2
+            'f0_mean': 0.3,  # Reduced from 0.4 to make it less dominant
+            'formant_f1_mean': 0.25,  # Increased from 0.2
+            'formant_f2_mean': 0.25,  # Increased from 0.2
+            'spectral_centroid': 0.2   # Same
         }
+        
+        self.use_manual_dsp = use_manual_dsp
     
     def classify_gender(self, audio_path: str) -> Dict[str, Any]:
         """
@@ -43,8 +47,13 @@ class ThresholdGenderClassifier:
             Dict containing gender prediction, confidence, and feature analysis
         """
         try:
-            # Extract features
-            features = extract_gender_relevant_features(audio_path)
+            # Extract features using manual or library-based DSP
+            if self.use_manual_dsp:
+                features = extract_gender_relevant_features_manual(audio_path)
+                method_suffix = " (Manual DSP)"
+            else:
+                features = extract_gender_relevant_features(audio_path)
+                method_suffix = " (Library DSP)"
             
             # Analyze each feature
             feature_votes = {}
@@ -52,57 +61,57 @@ class ThresholdGenderClassifier:
             
             # F0 (Fundamental Frequency) Analysis
             f0_mean = features.get('f0_mean', 0)
-            if f0_mean > 0:
+            if f0_mean > 50:  # Only consider if F0 is reasonable (above 50 Hz)
                 if f0_mean > self.thresholds['f0_mean']:
                     feature_votes['f0'] = 'female'
-                    # Higher F0 = more confident it's female
-                    confidence = min(1.0, (f0_mean - self.thresholds['f0_mean']) / 100)
+                    # Higher F0 = more confident it's female, but cap the confidence
+                    confidence = min(0.8, (f0_mean - self.thresholds['f0_mean']) / 80)
                 else:
                     feature_votes['f0'] = 'male'
-                    # Lower F0 = more confident it's male
-                    confidence = min(1.0, (self.thresholds['f0_mean'] - f0_mean) / 100)
-                feature_confidences['f0'] = max(0.1, confidence)
+                    # Lower F0 = more confident it's male, but cap the confidence
+                    confidence = min(0.8, (self.thresholds['f0_mean'] - f0_mean) / 80)
+                feature_confidences['f0'] = max(0.2, confidence)
             else:
                 feature_votes['f0'] = 'unknown'
                 feature_confidences['f0'] = 0.0
             
             # Formant Analysis
             f1_mean = features.get('formant_f1_mean', 0)
-            if f1_mean > 0:
+            if f1_mean > 200:  # Only consider reasonable formant values
                 if f1_mean > self.thresholds['formant_f1_mean']:
                     feature_votes['f1'] = 'female'
-                    confidence = min(1.0, (f1_mean - self.thresholds['formant_f1_mean']) / 200)
+                    confidence = min(0.7, (f1_mean - self.thresholds['formant_f1_mean']) / 300)
                 else:
                     feature_votes['f1'] = 'male'
-                    confidence = min(1.0, (self.thresholds['formant_f1_mean'] - f1_mean) / 200)
-                feature_confidences['f1'] = max(0.1, confidence)
+                    confidence = min(0.7, (self.thresholds['formant_f1_mean'] - f1_mean) / 300)
+                feature_confidences['f1'] = max(0.2, confidence)
             else:
                 feature_votes['f1'] = 'unknown'
                 feature_confidences['f1'] = 0.0
             
             f2_mean = features.get('formant_f2_mean', 0)
-            if f2_mean > 0:
+            if f2_mean > 500:  # Only consider reasonable formant values
                 if f2_mean > self.thresholds['formant_f2_mean']:
                     feature_votes['f2'] = 'female'
-                    confidence = min(1.0, (f2_mean - self.thresholds['formant_f2_mean']) / 300)
+                    confidence = min(0.7, (f2_mean - self.thresholds['formant_f2_mean']) / 400)
                 else:
                     feature_votes['f2'] = 'male'
-                    confidence = min(1.0, (self.thresholds['formant_f2_mean'] - f2_mean) / 300)
-                feature_confidences['f2'] = max(0.1, confidence)
+                    confidence = min(0.7, (self.thresholds['formant_f2_mean'] - f2_mean) / 400)
+                feature_confidences['f2'] = max(0.2, confidence)
             else:
                 feature_votes['f2'] = 'unknown'
                 feature_confidences['f2'] = 0.0
             
             # Spectral Centroid Analysis
             spec_centroid = features.get('spectral_centroid', 0)
-            if spec_centroid > 0:
+            if spec_centroid > 500:  # Only consider reasonable spectral centroid values
                 if spec_centroid > self.thresholds['spectral_centroid']:
                     feature_votes['spectral'] = 'female'
-                    confidence = min(1.0, (spec_centroid - self.thresholds['spectral_centroid']) / 1000)
+                    confidence = min(0.6, (spec_centroid - self.thresholds['spectral_centroid']) / 1200)
                 else:
                     feature_votes['spectral'] = 'male'
-                    confidence = min(1.0, (self.thresholds['spectral_centroid'] - spec_centroid) / 1000)
-                feature_confidences['spectral'] = max(0.1, confidence)
+                    confidence = min(0.6, (self.thresholds['spectral_centroid'] - spec_centroid) / 1200)
+                feature_confidences['spectral'] = max(0.2, confidence)
             else:
                 feature_votes['spectral'] = 'unknown'
                 feature_confidences['spectral'] = 0.0
@@ -136,14 +145,25 @@ class ThresholdGenderClassifier:
                 male_score /= total_weight
                 female_score /= total_weight
             
-            # Make final decision
-            if male_score > female_score:
+            # Make final decision with improved logic
+            score_difference = abs(male_score - female_score)
+            
+            # Require a minimum confidence difference to make a decision
+            min_difference_threshold = 0.1
+            
+            if score_difference < min_difference_threshold:
+                # Scores are too close, classify as unknown
+                predicted_gender = 'unknown'
+                confidence_score = 0.5  # Neutral confidence
+            elif male_score > female_score:
                 predicted_gender = 'male'
                 confidence_score = male_score
-            elif female_score > male_score:
-                predicted_gender = 'female'
-                confidence_score = female_score
             else:
+                predicted_gender = 'female' 
+                confidence_score = female_score
+            
+            # If no features were valid, default to unknown
+            if total_weight == 0:
                 predicted_gender = 'unknown'
                 confidence_score = 0.0
             
@@ -151,6 +171,7 @@ class ThresholdGenderClassifier:
             analysis = {
                 'gender': predicted_gender,
                 'confidence': float(confidence_score),
+                'method': f'threshold-based{method_suffix}',
                 'feature_analysis': {
                     'f0_hz': float(f0_mean),
                     'f1_hz': float(f1_mean),
@@ -263,19 +284,21 @@ class MLGenderClassifier:
             return result
 
 # Main interface function
-def classify_gender(audio_path: str, method: str = 'auto') -> Dict[str, Any]:
+def classify_gender(audio_path: str, method: str = 'auto', use_manual_dsp: bool = True) -> Dict[str, Any]:
     """
     Classify gender from audio file
     
     Args:
         audio_path: Path to audio file
         method: 'threshold', 'ml', or 'auto' (try ML first, fallback to threshold)
+        use_manual_dsp: Whether to use manual DSP implementation (default: True)
     
     Returns:
         Dictionary with gender classification results
     """
+
     if method == 'threshold':
-        classifier = ThresholdGenderClassifier()
+        classifier = ThresholdGenderClassifier(use_manual_dsp=use_manual_dsp)
     elif method == 'ml':
         classifier = MLGenderClassifier()
     else:  # auto

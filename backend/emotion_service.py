@@ -9,12 +9,17 @@ import json
 import tempfile
 import logging
 from typing import Dict, Any, Optional
+import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 from pyngrok import ngrok
 from services.gender_classifier import classify_gender
+from services.dsp_preprocess import dsp_preprocess
+from services.emotion_timeline import compute_emotion_timeline
+from fastapi.staticfiles import StaticFiles
+
 from services.dsp_filters import preprocess_audio_file, get_filter_info
 
 # Configure logging
@@ -23,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Global model variable
 model = None
+
+NGROK_AUTH = os.getenv("NGROK_AUTH", "31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
 
 def load_model():
     """Load the emotion detection model"""
@@ -53,13 +60,24 @@ def detect_emotion_from_file(
     if model is None:
         raise RuntimeError("Model not loaded")
     
+    dsp_report, processed_wav, artifacts = dsp_preprocess(
+        audio_path=audio_file_path,
+        fs_target=16000,
+        apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+        quant_bits=8,
+        use_mu_law=True,
+        preemph_alpha=0.97,
+        agc_target_rms=0.1,
+    )
+
+    timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
+    
     try:
-        import numpy as np
         
-        logger.info(f"Processing audio file: {audio_file_path}")
+        logger.info(f"Processing audio file: {processed_wav}")
         
         # Apply DSP preprocessing if requested
-        processed_audio_path = audio_file_path
+        processed_audio_path = processed_wav
         filter_applied = False
         filter_info = {}
         
@@ -110,6 +128,9 @@ def detect_emotion_from_file(
         sorted_emotions = sorted(emotion_pairs, key=lambda x: x[1], reverse=True)
         top_emotions = [{"emotion": e, "score": float(s)} for e, s in sorted_emotions]
         
+        artifact_urls = [f"/artifacts/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)}" for p in artifacts]
+        processed_url = f"/artifacts/{os.path.basename(os.path.dirname(processed_wav))}/{os.path.basename(processed_wav)}"
+
         # Clean up processed file if it's different from original
         if processed_audio_path != audio_file_path:
             try:
@@ -125,6 +146,12 @@ def detect_emotion_from_file(
             "preprocessing": {
                 "filter_applied": filter_applied,
                 "filter_info": filter_info
+            },
+            "dsp_report": dsp_report,
+            "artifacts": {
+                "processed_wav": processed_url,
+                "plots": artifact_urls,
+                "emotion_timeline": timeline_report
             }
         }
         
@@ -140,6 +167,12 @@ app = FastAPI(
     description="A FastAPI service for speech emotion recognition using emotion2vec_plus_large model with DSP preprocessing",
     version="1.1.0"
 )
+
+# Serve generated plots & processed audio
+if not os.path.exists("artifacts"):
+    os.makedirs("artifacts", exist_ok=True)
+app.mount("/artifacts", StaticFiles(directory="artifacts"), name="artifacts")
+
 
 # Add CORS middleware
 app.add_middleware(
@@ -191,8 +224,23 @@ async def predict_emotion(
         if audio.content_type and audio.content_type not in allowed_types:
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+        # Save uploaded file temporarily with original extension
+        file_ext = os.path.splitext(audio.filename)[1]
+        if not file_ext:
+            # If no extension, use content-type to determine appropriate extension
+            if audio.content_type:
+                if 'webm' in audio.content_type:
+                    file_ext = '.webm'
+                elif 'mp4' in audio.content_type:
+                    file_ext = '.mp4'
+                elif 'mpeg' in audio.content_type:
+                    file_ext = '.mp3'
+                else:
+                    file_ext = '.wav'
+            else:
+                file_ext = '.wav'
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)
             temp_path = temp_file.name
@@ -254,13 +302,28 @@ async def classify_gender_endpoint(
         if not audio.filename:
             raise HTTPException(status_code=400, detail="No file selected")
         
-        # Check file type (optional validation)
+        # Check file type (optio, nal validation)
         allowed_types = ['audio/wav', 'audio/mpeg', 'audio/mp4', 'audio/webm']
         if audio.content_type and audio.content_type not in allowed_types:
             logger.warning(f"Unusual audio type: {audio.content_type}")
         
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+        # Save uploaded file temporarily with original extension
+        file_ext = os.path.splitext(audio.filename)[1]
+        if not file_ext:
+            # If no extension, use content-type to determine appropriate extension
+            if audio.content_type:
+                if 'webm' in audio.content_type:
+                    file_ext = '.webm'
+                elif 'mp4' in audio.content_type:
+                    file_ext = '.mp4'
+                elif 'mpeg' in audio.content_type:
+                    file_ext = '.mp3'
+                else:
+                    file_ext = '.wav'
+            else:
+                file_ext = '.wav'
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             content = await audio.read()
             temp_file.write(content)
             temp_path = temp_file.name
@@ -387,7 +450,18 @@ async def service_info():
             "/filter-presets": "GET - Common filter presets",
             "/info": "GET - Service information",
             "/docs": "GET - API documentation (Swagger UI)"
+        },
+        "dsp_preprocessing": {
+            "steps": [
+                "silence_trim (STE)", "anti_alias + resample", "pre_emphasis", "AGC (RMS normalize)",
+                "FIR LPF (convolution)", "DFT/IDFT (duality)", "STFT OLA (PR error)",
+                "Hilbert envelope/inst. freq", "window leakage demo", "quantization (μ-law, SQNR)",
+                "FFT vs time-domain convolution speed", "impulse/step responses", "filter freq/phase/group delay",
+                "linearity test (sinusoidal fidelity)"
+            ],
+            "artifacts_served_at": "/artifacts"
         }
+
     }
 
 @app.on_event("startup")
@@ -412,7 +486,7 @@ if __name__ == '__main__':
     print("👥 Gender classification: POST /classify-gender")
     print("🔧 Filter presets: GET /filter-presets")
     print("🎛️  DSP Features: Bandpass (300-3400Hz default), Lowpass, Highpass filters")
-    ngrok.set_auth_token("31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
+    ngrok.set_auth_token(NGROK_AUTH)
 
     public_url = ngrok.connect(5000)  
     print("🔗 Public URL:", public_url)
