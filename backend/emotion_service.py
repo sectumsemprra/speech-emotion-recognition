@@ -478,7 +478,7 @@ def detect_emotion_from_file(
             agc_target_rms=0.1,
         )
 
-    timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
+    #timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
     
     try:
         logger.info(f"Processing audio file: {processed_wav}")
