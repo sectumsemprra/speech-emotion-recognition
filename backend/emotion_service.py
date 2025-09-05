@@ -29,7 +29,24 @@ from services.dsp_filters import preprocess_audio_file, get_filter_info
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global model variable for ML-based emotion detection
+model = None
+
 NGROK_AUTH = os.getenv("NGROK_AUTH", "31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
+
+def load_model():
+    """Load the emotion detection model"""
+    global model
+    try:
+        logger.info("Loading emotion2vec_plus_large model...")
+        from funasr import AutoModel
+        model = AutoModel(model="emotion2vec_plus_large")
+        logger.info("✅ Model loaded successfully!")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to load model: {e}")
+        logger.error("Make sure to install dependencies: pip install funasr numpy")
+        return False
 
 def extract_emotion_features(audio_path: str, manual: bool = False) -> Dict[str, float]:
     """Extract DSP features for emotion classification using course-based methods or FFT"""
@@ -443,7 +460,136 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
         "classification_method": "dsp_acoustic_phonetic_rules"
     }
 
-def detect_emotion_from_file(
+def detect_emotion_ml(
+    audio_file_path: str, 
+    apply_filtering: bool = True,
+    filter_type: str = 'bandpass',
+    low_cutoff: float = 300.0,
+    high_cutoff: float = 3400.0,
+    cutoff: Optional[float] = None,
+    filter_order: int = 5,
+    use_hardcoded_dsp: bool = True
+) -> Dict[str, Any]:
+    """Run ML-based emotion detection on an audio file with optional DSP preprocessing"""
+    global model
+    
+    if model is None:
+        raise RuntimeError("Model not loaded")
+    
+    # Choose DSP preprocessing method based on parameter
+    if use_hardcoded_dsp:
+        dsp_report, processed_wav, artifacts = dsp_preprocess(
+            audio_path=audio_file_path,
+            fs_target=16000,
+            apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+            quant_bits=8,
+            use_mu_law=True,
+            preemph_alpha=0.97,
+            agc_target_rms=0.1,
+        )
+    else:
+        dsp_report, processed_wav, artifacts = dsp_preprocess_library(
+            audio_path=audio_file_path,
+            fs_target=16000,
+            apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+            quant_bits=8,
+            use_mu_law=True,
+            preemph_alpha=0.97,
+            agc_target_rms=0.1,
+        )
+
+    timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
+    
+    try:
+        logger.info(f"Processing audio file with ML model: {processed_wav}")
+        
+        # Apply DSP preprocessing if requested
+        processed_audio_path = processed_wav
+        filter_applied = False
+        filter_info = {}
+        
+        if apply_filtering and filter_type.lower() != 'none':
+            try:
+                logger.info("🔧 Applying DSP preprocessing...")
+                processed_audio_path = preprocess_audio_file(
+                    input_path=audio_file_path,
+                    filter_type=filter_type,
+                    low_cutoff=low_cutoff,
+                    high_cutoff=high_cutoff,
+                    cutoff=cutoff,
+                    order=filter_order
+                )
+                filter_applied = True
+                filter_info = get_filter_info(filter_type, low_cutoff, high_cutoff, cutoff, filter_order)
+                logger.info(f"✅ DSP preprocessing completed: {filter_info}")
+                
+            except Exception as e:
+                logger.warning(f"⚠️  DSP preprocessing failed, using original audio: {e}")
+                processed_audio_path = audio_file_path
+                filter_applied = False
+        
+        # Run model inference on processed audio
+        result = model.generate(processed_audio_path, granularity="utterance")
+        data = result[0]
+        
+        # Extract emotions and scores
+        emotions = None
+        scores = None
+        
+        if 'predictions' in data and 'scores' in data:
+            emotions = data['predictions']
+            scores = data['scores']
+        elif 'labels' in data and 'scores' in data:
+            emotions = [e.split('/')[-1] for e in data['labels']]
+            scores = data['scores']
+        else:
+            raise ValueError("No valid predictions or labels found")
+        
+        # Find best prediction
+        best_idx = int(np.argmax(scores))
+        best_emotion = emotions[best_idx]
+        confidence = float(scores[best_idx])
+        
+        # Sort all emotions by score
+        emotion_pairs = list(zip(emotions, scores))
+        sorted_emotions = sorted(emotion_pairs, key=lambda x: x[1], reverse=True)
+        top_emotions = [{"emotion": e, "score": float(s)} for e, s in sorted_emotions]
+        artifact_urls = [f"/artifacts/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)}" for p in artifacts]
+        processed_url = f"/artifacts/{os.path.basename(os.path.dirname(processed_wav))}/{os.path.basename(processed_wav)}"
+
+        # Clean up processed file if it's different from original
+        if processed_audio_path != audio_file_path:
+            try:
+                os.unlink(processed_audio_path)
+            except OSError:
+                pass
+        
+        # Prepare result
+        result_dict = {
+            "emotion": best_emotion,
+            "confidence": confidence,
+            "topEmotions": top_emotions,
+            "preprocessing": {
+                "filter_applied": filter_applied,
+                "filter_info": filter_info,
+                "dsp_method": "hardcoded" if use_hardcoded_dsp else "library"
+            },
+            "dsp_report": dsp_report,
+            "classification_method": "ml_emotion2vec_plus_large",
+            "artifacts": {
+                "processed_wav": processed_url,
+                "plots": artifact_urls,
+                "emotion_timeline": timeline_report
+            }
+        }
+        
+        return result_dict
+        
+    except Exception as e:
+        logger.error(f"Error during ML-based emotion detection: {e}")
+        raise
+
+def detect_emotion_dsp(
     audio_file_path: str, 
     apply_filtering: bool = True,
     filter_type: str = 'bandpass',
@@ -554,11 +700,49 @@ def detect_emotion_from_file(
         logger.error(f"Error during DSP-based emotion detection: {e}")
         raise
 
+def detect_emotion_from_file(
+    audio_file_path: str, 
+    apply_filtering: bool = True,
+    filter_type: str = 'bandpass',
+    low_cutoff: float = 300.0,
+    high_cutoff: float = 3400.0,
+    cutoff: Optional[float] = None,
+    filter_order: int = 5,
+    manual: bool = False,
+    use_hardcoded_dsp: bool = True,
+    detection_method: str = 'dsp'
+) -> Dict[str, Any]:
+    """Run emotion detection on an audio file using either ML or DSP method"""
+    
+    if detection_method == 'ml':
+        return detect_emotion_ml(
+            audio_file_path=audio_file_path,
+            apply_filtering=apply_filtering,
+            filter_type=filter_type,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            cutoff=cutoff,
+            filter_order=filter_order,
+            use_hardcoded_dsp=use_hardcoded_dsp
+        )
+    else:
+        return detect_emotion_dsp(
+            audio_file_path=audio_file_path,
+            apply_filtering=apply_filtering,
+            filter_type=filter_type,
+            low_cutoff=low_cutoff,
+            high_cutoff=high_cutoff,
+            cutoff=cutoff,
+            filter_order=filter_order,
+            manual=manual,
+            use_hardcoded_dsp=use_hardcoded_dsp
+        )
+
 # Create FastAPI app
 app = FastAPI(
-    title="DSP-Based Emotion Detection Service",
-    description="A FastAPI service for speech emotion recognition using pure DSP techniques and acoustic-phonetic rules",
-    version="2.0.0"
+    title="Emotion Detection Service",
+    description="A FastAPI service for speech emotion recognition using either ML models or DSP techniques",
+    version="3.0.0"
 )
 
 # Serve generated plots & processed audio
@@ -581,9 +765,10 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "service": "DSP-Based Emotion Detection Service",
-        "classification_method": "acoustic_phonetic_rules",
-        "features": ["dsp_emotion_detection", "gender_classification", "dsp_preprocessing"],
+        "service": "Emotion Detection Service",
+        "classification_methods": ["ml_emotion2vec_plus_large", "dsp_acoustic_phonetic_rules"],
+        "model_loaded": model is not None,
+        "features": ["ml_emotion_detection", "dsp_emotion_detection", "gender_classification", "dsp_preprocessing"],
         "dsp_techniques": ["DFT", "autocorrelation", "spectral_analysis", "convolution"]
     }
 
@@ -597,6 +782,7 @@ async def predict_emotion(
     cutoff: Optional[float] = Query(None, description="Single cutoff frequency (Hz) for lowpass/highpass"),
     filter_order: int = Query(5, description="Filter order (1-10)"),
     use_hardcoded_dsp: bool = Query(True, description="Use hardcoded DSP methods (True) or library functions (False)"),
+    detection_method: str = Query('dsp', description="Detection method: 'ml' for ML model or 'dsp' for DSP rules"),
     manual = False
     # manual: bool = Query(False, description="Use manual DSP implementations (slower but educational)")
 ):
@@ -643,7 +829,7 @@ async def predict_emotion(
             temp_path = temp_file.name
         
         try:
-            # Run emotion detection with DSP preprocessing
+            # Run emotion detection with selected method
             result = detect_emotion_from_file(
                 audio_file_path=temp_path,
                 apply_filtering=apply_filtering,
@@ -653,7 +839,8 @@ async def predict_emotion(
                 cutoff=cutoff,
                 filter_order=filter_order,
                 use_hardcoded_dsp=use_hardcoded_dsp,
-                manual=manual
+                manual=manual,
+                detection_method=detection_method
             )
             
             logger.info(f"Emotion detected: {result['emotion']} ({result['confidence']:.2f}) "
@@ -683,7 +870,8 @@ async def predict_emotion(
                     "filter_applied": False,
                     "filter_info": {},
                     "dsp_method": "hardcoded" if use_hardcoded_dsp else "library"
-                }
+                },
+                "detection_method": detection_method
             }
         )
 
@@ -846,11 +1034,17 @@ async def get_filter_presets():
 async def service_info():
     """Get service information"""
     return {
-        "service": "DSP-Based Emotion Detection & Gender Classification Service",
-        "version": "2.0.0",
+        "service": "Emotion Detection & Gender Classification Service",
+        "version": "3.0.0",
         "classification_methods": {
-            "emotion": "Acoustic-phonetic rules using DSP features",
+            "emotion": {
+                "ml": "emotion2vec_plus_large model",
+                "dsp": "Acoustic-phonetic rules using DSP features"
+            },
             "gender": "Multi-feature DSP classifier (F0, MFCC, Formants, Spectral Analysis)"
+        },
+        "model_status": {
+            "emotion2vec_loaded": model is not None
         },
         "dsp_techniques": {
             "transforms": ["DFT with sin/cos", "IDFT", "Autocorrelation"],
@@ -879,7 +1073,7 @@ async def service_info():
         },
         "endpoints": {
             "/health": "GET - Health check",
-            "/predict": "POST - DSP-based emotion detection",
+            "/predict": "POST - Emotion detection (ML or DSP-based)",
             "/classify-gender": "POST - DSP-based gender classification", 
             "/filter-presets": "GET - Common filter presets",
             "/info": "GET - Service information",
@@ -897,20 +1091,25 @@ async def service_info():
 @app.on_event("startup")
 async def startup_event():
     """Initialize DSP-based services"""
-    logger.info("🚀 Starting DSP-Based Emotion Detection & Gender Classification Service...")
-    logger.info("🎭 DSP-based Emotion Detection is ready!")
+    logger.info("🚀 Starting Emotion Detection & Gender Classification Service...")
+    if load_model():
+        logger.info("🎭 ML-based Emotion Detection is ready!")
+    else:
+        logger.error("❌ Failed to load ML model. Only DSP-based emotion detection available.")
+    logger.info("🎯 DSP-based Emotion Detection is ready!")
     logger.info("👥 DSP-based Gender Classification is ready!")
     logger.info("🔧 Course-based DSP techniques loaded!")
     logger.info("📊 Available techniques: DFT/IDFT, Convolution, Autocorrelation, Spectral Analysis")
 
 if __name__ == '__main__':
-    print("🚀 Starting DSP-Based Emotion Detection & Gender Classification Service...")
+    print("🚀 Starting Emotion Detection & Gender Classification Service...")
     print("📡 Server will be available at: http://localhost:5000")
     print("📖 API documentation: http://localhost:5000/docs")
     print("🔗 Health check: http://localhost:5000/health")
-    print("🎭 DSP-based emotion detection: POST /predict")
-    print("👥 DSP-based gender classification: POST /classify-gender")
+    print("🎭 Emotion detection (ML + DSP): POST /predict")
+    print("👥 Gender classification: POST /classify-gender")
     print("🔧 Filter presets: GET /filter-presets")
+    print("🤖 Methods: ML (emotion2vec_plus_large) + DSP (acoustic-phonetic rules)")
     print("🎛️  DSP Techniques: DFT/IDFT, Convolution, Autocorrelation, Spectral Analysis")
     print("📚 Course Methods: Sin/Cos transforms, Manual feature extraction")
     ngrok.set_auth_token(NGROK_AUTH)
