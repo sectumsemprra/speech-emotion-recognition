@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 NGROK_AUTH = os.getenv("NGROK_AUTH", "31y3EqKzzZqEmFcksJJiO0jFShJ_76ywiqbQqegsSHLULmtL")
 
-def extract_emotion_features(audio_path: str) -> Dict[str, float]:
-    """Extract DSP features for emotion classification using course-based methods"""
+def extract_emotion_features(audio_path: str, manual: bool = False) -> Dict[str, float]:
+    """Extract DSP features for emotion classification using course-based methods or FFT"""
     try:
         import librosa
         import math
@@ -116,10 +116,10 @@ def extract_emotion_features(audio_path: str) -> Dict[str, float]:
             
             # Apply window
             window = ManualDSPCore.hamming_window(frame_length)
-            windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+            windowed_frame = ManualDSPCore.apply_window(list(frame), window)
             
             # Autocorrelation for F0
-            autocorr = ManualDSPCore.autocorrelation(windowed_frame, frame_length // 2)
+            autocorr = ManualDSPCore.autocorrelation_fast(windowed_frame, frame_length // 2, manual=manual)
             
             # Find F0 in speech range
             min_period = int(sr / 400)  # Max F0 = 400Hz
@@ -165,32 +165,31 @@ def extract_emotion_features(audio_path: str) -> Dict[str, float]:
             
             # Apply window
             window = ManualDSPCore.hamming_window(frame_length)
-            windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+            windowed_frame = ManualDSPCore.apply_window(list(frame), window)
             
-            # DFT
-            X_real, X_imag = ManualDSPCore.dft_real(windowed_frame)
-            
-            # Spectral centroid
-            centroid = ManualDSPCore.spectral_centroid_from_dft(X_real, X_imag, sr)
+            # Spectral centroid with fast/manual option
+            centroid = ManualDSPCore.spectral_centroid_fast(windowed_frame, sr, manual=manual)
             if centroid > 0:
                 spectral_centroids.append(centroid)
             
-            # Spectral rolloff
-            rolloff = ManualDSPCore.spectral_rolloff_from_dft(X_real, X_imag, sr, 0.85)
+            # Spectral rolloff with fast/manual option
+            rolloff = ManualDSPCore.spectral_rolloff_fast(windowed_frame, sr, 0.85, manual=manual)
             spectral_rolloffs.append(rolloff)
             
             # Spectral spread (bandwidth around centroid)
-            magnitude = ManualDSPCore.magnitude_spectrum(X_real, X_imag)
-            freqs = frequency_bins(frame_length, sr)
-            
-            if len(magnitude) == len(freqs) and centroid > 0:
-                power_spectrum = [mag ** 2 for mag in magnitude[:len(freqs)]]
-                total_power = sum(power_spectrum)
+            if centroid > 0:
+                X_real, X_imag = ManualDSPCore.dft_fast(windowed_frame, manual=manual)
+                magnitude = ManualDSPCore.magnitude_spectrum(X_real, X_imag)
+                freqs = frequency_bins(frame_length, sr)
                 
-                if total_power > 0:
-                    spread_sum = sum((f - centroid) ** 2 * p for f, p in zip(freqs, power_spectrum))
-                    spread = math.sqrt(spread_sum / total_power)
-                    spectral_spreads.append(spread)
+                if len(magnitude) == len(freqs):
+                    power_spectrum = [mag ** 2 for mag in magnitude[:len(freqs)]]
+                    total_power = sum(power_spectrum)
+                    
+                    if total_power > 0:
+                        spread_sum = sum((f - centroid) ** 2 * p for f, p in zip(freqs, power_spectrum))
+                        spread = math.sqrt(spread_sum / total_power)
+                        spectral_spreads.append(spread)
         
         # Calculate spectral statistics
         if spectral_centroids:
@@ -213,7 +212,7 @@ def extract_emotion_features(audio_path: str) -> Dict[str, float]:
             features['spectral_spread_mean'] = 0.0
         
         # 4. Zero Crossing Rate (speech/emotion articulation)
-        features['zcr'] = float(ManualDSPCore.zero_crossing_rate(y.tolist()))
+        features['zcr'] = float(ManualDSPCore.zero_crossing_rate(list(y)))
         
         # 5. Temporal dynamics (rhythm and timing)
         features['duration'] = float(len(y) / sr)
@@ -225,9 +224,9 @@ def extract_emotion_features(audio_path: str) -> Dict[str, float]:
         for i in range(0, len(y) - frame_length + 1, hop_length):
             frame = y[i:i + frame_length]
             window = ManualDSPCore.hamming_window(frame_length)
-            windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+            windowed_frame = ManualDSPCore.apply_window(list(frame), window)
             
-            X_real, X_imag = ManualDSPCore.dft_real(windowed_frame)
+            X_real, X_imag = ManualDSPCore.dft_fast(windowed_frame, manual=manual)
             magnitude = ManualDSPCore.magnitude_spectrum(X_real, X_imag)
             
             if prev_magnitude is not None:
@@ -419,7 +418,8 @@ def detect_emotion_from_file(
     low_cutoff: float = 300.0,
     high_cutoff: float = 3400.0,
     cutoff: Optional[float] = None,
-    filter_order: int = 5
+    filter_order: int = 5,
+    manual: bool = False
 ) -> Dict[str, Any]:
     """Run DSP-based emotion detection on an audio file with optional preprocessing"""
     
@@ -463,7 +463,7 @@ def detect_emotion_from_file(
         
         # Extract DSP features for emotion classification
         logger.info("🎭 Extracting emotion features using DSP methods...")
-        features = extract_emotion_features(processed_audio_path)
+        features = extract_emotion_features(processed_audio_path, manual=manual)
         
         # Classify emotion using DSP-based rules
         logger.info("🎯 Classifying emotion using acoustic-phonetic rules...")
@@ -547,7 +547,9 @@ async def predict_emotion(
     low_cutoff: float = Query(300.0, description="Low cutoff frequency (Hz) for bandpass"),
     high_cutoff: float = Query(3400.0, description="High cutoff frequency (Hz) for bandpass"),
     cutoff: Optional[float] = Query(None, description="Single cutoff frequency (Hz) for lowpass/highpass"),
-    filter_order: int = Query(5, description="Filter order (1-10)")
+    filter_order: int = Query(5, description="Filter order (1-10)"),
+    manual = False
+    # manual: bool = Query(False, description="Use manual DSP implementations (slower but educational)")
 ):
     """Predict emotion from uploaded audio file with optional DSP preprocessing"""
     try:
@@ -600,7 +602,8 @@ async def predict_emotion(
                 low_cutoff=low_cutoff,
                 high_cutoff=high_cutoff,
                 cutoff=cutoff,
-                filter_order=filter_order
+                filter_order=filter_order,
+                manual=manual
             )
             
             logger.info(f"Emotion detected: {result['emotion']} ({result['confidence']:.2f}) "
@@ -640,7 +643,9 @@ async def classify_gender_endpoint(
     filter_type: str = Query('bandpass', description="Filter type: bandpass, lowpass, highpass, none"),
     low_cutoff: float = Query(300.0, description="Low cutoff frequency (Hz)"),
     high_cutoff: float = Query(3400.0, description="High cutoff frequency (Hz)"),
-    filter_order: int = Query(5, description="Filter order")
+    filter_order: int = Query(5, description="Filter order"),
+    manual = False
+    # manual: bool = Query(False, description="Use manual DSP implementations (slower but educational)")
 ):
     """Classify gender from uploaded audio file using DSP features with optional preprocessing"""
     try:
@@ -698,7 +703,7 @@ async def classify_gender_endpoint(
             
             # Run gender classification using gender_service.py functions
             logger.info(f"Extracting features from: {audio.filename}")
-            features = extract_audio_features(processed_audio_path)
+            features = extract_audio_features(processed_audio_path, manual=manual)
             
             # Comprehensive debug logging
             logger.info("=== FEATURE EXTRACTION DEBUG ===")

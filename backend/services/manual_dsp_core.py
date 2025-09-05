@@ -2,9 +2,11 @@
 """
 Manual DSP Core Module
 Hand-written implementations using course fundamentals: DFT, IDFT, Convolution, Sin/Cos
+With optional FFT acceleration for performance
 """
 
 import math
+import numpy as np
 from typing import List, Tuple, Union, Optional
 
 class ManualDSPCore:
@@ -432,6 +434,171 @@ class ManualDSPCore:
         y = ManualDSPCore.idft_real(Y_real, Y_imag)
         
         return y
+    
+    @staticmethod
+    def dft_fast(x: List[float], manual: bool = False) -> Tuple[List[float], List[float]]:
+        """
+        Fast DFT implementation with manual/FFT option
+        
+        Args:
+            x: Real-valued input signal
+            manual: If True, use manual sin/cos implementation. If False, use FFT
+            
+        Returns:
+            Tuple of (real_part, imaginary_part) of DFT coefficients
+        """
+        if manual:
+            return ManualDSPCore.dft_real(x)
+        else:
+            # Use numpy FFT for speed
+            X_complex = np.fft.fft(x)
+            X_real = X_complex.real.tolist()
+            X_imag = X_complex.imag.tolist()
+            return X_real, X_imag
+    
+    @staticmethod
+    def idft_fast(X_real: List[float], X_imag: List[float], manual: bool = False) -> List[float]:
+        """
+        Fast IDFT implementation with manual/FFT option
+        
+        Args:
+            X_real: Real part of DFT coefficients
+            X_imag: Imaginary part of DFT coefficients
+            manual: If True, use manual sin/cos implementation. If False, use IFFT
+            
+        Returns:
+            Real-valued time domain signal
+        """
+        if manual:
+            return ManualDSPCore.idft_real(X_real, X_imag)
+        else:
+            # Use numpy IFFT for speed
+            X_complex = np.array(X_real) + 1j * np.array(X_imag)
+            x_complex = np.fft.ifft(X_complex)
+            return x_complex.real.tolist()
+    
+    @staticmethod
+    def spectral_centroid_fast(signal: List[float], fs: float, manual: bool = False) -> float:
+        """
+        Fast spectral centroid calculation with manual/FFT option
+        
+        Args:
+            signal: Input signal
+            fs: Sampling frequency
+            manual: If True, use manual DFT. If False, use FFT
+            
+        Returns:
+            Spectral centroid in Hz
+        """
+        if manual:
+            X_real, X_imag = ManualDSPCore.dft_real(signal)
+            return ManualDSPCore.spectral_centroid_from_dft(X_real, X_imag, fs)
+        else:
+            # Fast FFT-based implementation
+            X = np.fft.rfft(signal)
+            magnitude = np.abs(X)
+            freqs = np.fft.rfftfreq(len(signal), 1/fs)
+            
+            # Calculate spectral centroid
+            power_spectrum = magnitude ** 2
+            weighted_sum = np.sum(freqs * power_spectrum)
+            total_power = np.sum(power_spectrum)
+            
+            if total_power == 0:
+                return 0.0
+            
+            return float(weighted_sum / total_power)
+    
+    @staticmethod
+    def spectral_rolloff_fast(signal: List[float], fs: float, rolloff_percent: float = 0.85, manual: bool = False) -> float:
+        """
+        Fast spectral rolloff calculation with manual/FFT option
+        
+        Args:
+            signal: Input signal
+            fs: Sampling frequency
+            rolloff_percent: Percentage of total energy (default 85%)
+            manual: If True, use manual DFT. If False, use FFT
+            
+        Returns:
+            Rolloff frequency in Hz
+        """
+        if manual:
+            X_real, X_imag = ManualDSPCore.dft_real(signal)
+            return ManualDSPCore.spectral_rolloff_from_dft(X_real, X_imag, fs, rolloff_percent)
+        else:
+            # Fast FFT-based implementation
+            X = np.fft.rfft(signal)
+            power_spectrum = np.abs(X) ** 2
+            freqs = np.fft.rfftfreq(len(signal), 1/fs)
+            
+            total_energy = np.sum(power_spectrum)
+            if total_energy == 0:
+                return 0.0
+            
+            # Find frequency where cumulative energy reaches threshold
+            cumulative_energy = np.cumsum(power_spectrum)
+            threshold = rolloff_percent * total_energy
+            
+            rolloff_idx = np.where(cumulative_energy >= threshold)[0]
+            if len(rolloff_idx) > 0:
+                return float(freqs[rolloff_idx[0]])
+            else:
+                return float(freqs[-1])
+    
+    @staticmethod
+    def autocorrelation_fast(x: List[float], max_lag: Optional[int] = None, manual: bool = False) -> List[float]:
+        """
+        Fast autocorrelation with manual/FFT option
+        
+        Args:
+            x: Input signal
+            max_lag: Maximum lag to compute
+            manual: If True, use manual time-domain. If False, use FFT-based
+            
+        Returns:
+            Autocorrelation coefficients
+        """
+        if manual:
+            return ManualDSPCore.autocorrelation(x, max_lag)
+        else:
+            # Fast FFT-based autocorrelation
+            x_array = np.array(x)
+            N = len(x_array)
+            
+            # Pad with zeros to avoid circular correlation
+            x_padded = np.concatenate([x_array, np.zeros(N)])
+            
+            # FFT-based autocorrelation
+            X = np.fft.fft(x_padded)
+            autocorr_full = np.fft.ifft(X * np.conj(X)).real
+            
+            # Take only positive lags and trim to max_lag
+            autocorr = autocorr_full[:N]
+            
+            if max_lag is not None:
+                autocorr = autocorr[:max_lag + 1]
+            
+            return autocorr.tolist()
+    
+    @staticmethod
+    def convolution_fast(x: List[float], h: List[float], manual: bool = False) -> List[float]:
+        """
+        Fast convolution with manual/FFT option
+        
+        Args:
+            x: Input signal
+            h: Impulse response
+            manual: If True, use manual time-domain. If False, use FFT-based
+            
+        Returns:
+            Convolved signal
+        """
+        if manual:
+            return ManualDSPCore.convolution(x, h)
+        else:
+            # Fast FFT-based convolution
+            return np.convolve(x, h, mode='full').tolist()
     
     @staticmethod
     def spectral_centroid_from_dft(X_real: List[float], X_imag: List[float], fs: float) -> float:

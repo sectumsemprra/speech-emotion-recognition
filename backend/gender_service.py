@@ -19,8 +19,8 @@ from pyngrok import ngrok
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_audio_features(audio_path: str) -> Dict[str, float]:
-    """Extract DSP features from audio for gender classification using manual DSP"""
+def extract_audio_features(audio_path: str, manual: bool = False) -> Dict[str, float]:
+    """Extract DSP features from audio for gender classification using manual DSP or FFT"""
     try:
         import librosa  # Only for audio loading and basic operations
         from services.manual_dsp_core import ManualDSPCore, frequency_bins
@@ -90,10 +90,10 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                 
                 # Apply window to reduce edge effects
                 window = ManualDSPCore.hamming_window(frame_length)
-                windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
                 
                 # Calculate autocorrelation
-                autocorr = ManualDSPCore.autocorrelation(windowed_frame, frame_length // 2)
+                autocorr = ManualDSPCore.autocorrelation_fast(windowed_frame, frame_length // 2, manual=manual)
                 
                 # Find F0 in expected range (50-500 Hz)
                 min_period = int(sr / 500)  # Max F0 = 500Hz
@@ -149,13 +149,10 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                 
                 # Apply window
                 window = ManualDSPCore.hamming_window(frame_length)
-                windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
                 
-                # Calculate DFT using course method
-                X_real, X_imag = ManualDSPCore.dft_real(windowed_frame)
-                
-                # Calculate spectral centroid using course approach
-                centroid = ManualDSPCore.spectral_centroid_from_dft(X_real, X_imag, sr)
+                # Calculate spectral centroid with fast/manual option
+                centroid = ManualDSPCore.spectral_centroid_fast(windowed_frame, sr, manual=manual)
                 if centroid > 0:
                     centroids.append(centroid)
             
@@ -222,10 +219,10 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                     
                     # Apply window
                     window = ManualDSPCore.hamming_window(frame_length)
-                    windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+                    windowed_frame = ManualDSPCore.apply_window(frame, window)
                     
-                    # DFT using course method
-                    X_real, X_imag = ManualDSPCore.dft_real(windowed_frame)
+                    # DFT using fast/manual option
+                    X_real, X_imag = ManualDSPCore.dft_fast(windowed_frame, manual=manual)
                     power_spectrum = ManualDSPCore.power_spectrum(X_real, X_imag)
                     
                     # Apply mel filters
@@ -249,7 +246,7 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                 
                 return mfcc_frames
             
-            mfcc_frames = manual_mfcc(y.tolist(), sr, n_mfcc=13)
+            mfcc_frames = manual_mfcc(list(y), sr, n_mfcc=13)
             
             if mfcc_frames:
                 # Calculate statistics for first 5 MFCCs
@@ -282,10 +279,10 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
         try:
             # Use entire signal for formant estimation
             window = ManualDSPCore.hamming_window(len(y))
-            windowed_signal = ManualDSPCore.apply_window(y.tolist(), window)
+            windowed_signal = ManualDSPCore.apply_window(list(y), window)
             
-            # Get power spectrum using manual DFT
-            X_real, X_imag = ManualDSPCore.dft_real(windowed_signal)
+            # Get power spectrum using fast/manual DFT
+            X_real, X_imag = ManualDSPCore.dft_fast(windowed_signal, manual=manual)
             magnitude = ManualDSPCore.magnitude_spectrum(X_real, X_imag)
             freq_bins = frequency_bins(len(y), sr)
             
@@ -319,21 +316,21 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                     # Sort by height (strongest first)
                     sorted_pairs = sorted(zip(peak_freqs, peak_heights), key=lambda x: x[1], reverse=True)
                     peak_freqs_sorted = [pair[0] for pair in sorted_pairs]
-                    
-                    # Try to identify F1 and F2 based on typical ranges
+                
+                # Try to identify F1 and F2 based on typical ranges
                     f1_candidates = [f for f in peak_freqs_sorted if 200 <= f <= 1200]
                     f2_candidates = [f for f in peak_freqs_sorted if 800 <= f <= 3000]
-                    
+                
                     features['f1_approx'] = float(f1_candidates[0]) if f1_candidates else 0.0
                     features['f2_approx'] = float(f2_candidates[0]) if f2_candidates else 0.0
-                    
-                    # Ensure F2 > F1 (basic sanity check)
-                    if features['f1_approx'] > 0 and features['f2_approx'] > 0:
-                        if features['f2_approx'] <= features['f1_approx']:
-                            if len(f2_candidates) > 1:
-                                features['f2_approx'] = float(f2_candidates[1])
-                            else:
-                                features['f2_approx'] = features['f1_approx'] * 1.5  # Rough estimate
+                
+                # Ensure F2 > F1 (basic sanity check)
+                if features['f1_approx'] > 0 and features['f2_approx'] > 0:
+                    if features['f2_approx'] <= features['f1_approx']:
+                        if len(f2_candidates) > 1:
+                            features['f2_approx'] = float(f2_candidates[1])
+                        else:
+                            features['f2_approx'] = features['f1_approx'] * 1.5  # Rough estimate
                 else:
                     features['f1_approx'] = 0.0
                     features['f2_approx'] = 0.0
@@ -357,13 +354,10 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                 
                 # Apply window
                 window = ManualDSPCore.hamming_window(frame_length)
-                windowed_frame = ManualDSPCore.apply_window(frame.tolist(), window)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
                 
-                # Calculate DFT using course method
-                X_real, X_imag = ManualDSPCore.dft_real(windowed_frame)
-                
-                # Calculate spectral rolloff using course approach
-                rolloff = ManualDSPCore.spectral_rolloff_from_dft(X_real, X_imag, sr, 0.85)
+                # Calculate spectral rolloff with fast/manual option
+                rolloff = ManualDSPCore.spectral_rolloff_fast(windowed_frame, sr, 0.85, manual=manual)
                 rolloffs.append(rolloff)
             
             if rolloffs:
@@ -377,7 +371,7 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
         
         # 6. Zero crossing rate using manual implementation
         try:
-            features['zcr_mean'] = float(ManualDSPCore.zero_crossing_rate(y.tolist()))
+            features['zcr_mean'] = float(ManualDSPCore.zero_crossing_rate(list(y)))
         except Exception as e:
             logger.warning(f"ZCR extraction failed: {e}")
             features['zcr_mean'] = 0.0
@@ -394,7 +388,7 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                 frame = y[i:i + frame_length]
                 
                 # Estimate fundamental period using autocorrelation
-                autocorr = ManualDSPCore.autocorrelation(frame.tolist(), frame_length // 2)
+                autocorr = ManualDSPCore.autocorrelation_fast(list(frame), frame_length // 2, manual=manual)
                 
                 # Find the period (skip first few lags to avoid zero-lag peak)
                 min_period = int(sr / 500)  # Max F0 = 500Hz
