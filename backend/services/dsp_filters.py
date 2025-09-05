@@ -96,7 +96,7 @@ def custom_butterworth_filter(
     if len(audio_data) == 0:
         return audio_data
     
-    # Get FFT of the signal
+    # Get FFT of the signal using library function
     N = len(audio_data)
     fft_data = np.fft.fft(audio_data)
     
@@ -106,22 +106,24 @@ def custom_butterworth_filter(
     freqs_abs = np.abs(freqs)
     
     # Initialize filter response
-    H = np.ones(N, dtype=complex)
+    H = np.ones(N, dtype=np.float64)
     
     # Design Butterworth filter response in frequency domain
     if filter_type == 'low':
         # Lowpass: H(w) = 1 / (1 + (w/wc)^(2*order))
         fc = cutoff if not isinstance(cutoff, (tuple, list)) else cutoff[0]
-        H = 1.0 / (1.0 + (freqs_abs / fc) ** (2 * order))
+        # Avoid division by zero at DC
+        mask = freqs_abs > 0
+        H[mask] = 1.0 / (1.0 + (freqs_abs[mask] / fc) ** (2 * order))
+        H[~mask] = 1.0  # DC component passes through lowpass
         
     elif filter_type == 'high':
         # Highpass: H(w) = 1 / (1 + (wc/w)^(2*order))
         fc = cutoff if not isinstance(cutoff, (tuple, list)) else cutoff[0]
         # Avoid division by zero
-        with np.errstate(divide='ignore', invalid='ignore'):
-            H = 1.0 / (1.0 + (fc / (freqs_abs + 1e-10)) ** (2 * order))
-        # Set DC component appropriately for highpass
-        H[0] = 0.0
+        mask = freqs_abs > 1e-10
+        H[mask] = 1.0 / (1.0 + (fc / freqs_abs[mask]) ** (2 * order))
+        H[~mask] = 0.0  # DC and very low frequencies are blocked
         
     elif filter_type == 'band':
         # Bandpass: combination of highpass and lowpass
@@ -129,51 +131,60 @@ def custom_butterworth_filter(
             raise ValueError("Band filters require cutoff as tuple (low_freq, high_freq)")
         
         low_freq, high_freq = cutoff
-        center_freq = np.sqrt(low_freq * high_freq)  # Geometric mean
-        bandwidth = high_freq - low_freq
+        if low_freq >= high_freq:
+            raise ValueError("Low cutoff frequency must be less than high cutoff frequency")
         
-        # Bandpass Butterworth: H(w) = 1 / (1 + ((w^2 - wc^2)/(w*BW))^(2*order))
-        w = freqs_abs
-        wc = center_freq
-        BW = bandwidth
+        # Simple bandpass: multiply highpass and lowpass responses
+        # Highpass component
+        mask_nonzero = freqs_abs > 1e-10
+        H_high = np.zeros(N)
+        H_high[mask_nonzero] = 1.0 / (1.0 + (low_freq / freqs_abs[mask_nonzero]) ** (2 * order))
         
-        with np.errstate(divide='ignore', invalid='ignore'):
-            # Avoid division by zero
-            denominator = 1.0 + ((w**2 - wc**2) / (w * BW + 1e-10)) ** (2 * order)
-            H = 1.0 / denominator
+        # Lowpass component
+        H_low = 1.0 / (1.0 + (freqs_abs / high_freq) ** (2 * order))
         
-        # Handle DC and very low frequencies
-        H[freqs_abs < low_freq/10] = 0.0
+        # Combine
+        H = H_high * H_low
         
     elif filter_type == 'bandstop':
-        # Bandstop (notch): inverse of bandpass
+        # Bandstop (notch): 1 - bandpass
         if not isinstance(cutoff, (tuple, list)) or len(cutoff) != 2:
             raise ValueError("Band filters require cutoff as tuple (low_freq, high_freq)")
         
         low_freq, high_freq = cutoff
-        center_freq = np.sqrt(low_freq * high_freq)
-        bandwidth = high_freq - low_freq
+        if low_freq >= high_freq:
+            raise ValueError("Low cutoff frequency must be less than high cutoff frequency")
         
-        # Bandstop Butterworth: H(w) = 1 / (1 + (w*BW/(w^2 - wc^2))^(2*order))
-        w = freqs_abs
-        wc = center_freq
-        BW = bandwidth
+        # Create bandpass response first
+        mask_nonzero = freqs_abs > 1e-10
+        H_high = np.zeros(N)
+        H_high[mask_nonzero] = 1.0 / (1.0 + (low_freq / freqs_abs[mask_nonzero]) ** (2 * order))
+        H_low = 1.0 / (1.0 + (freqs_abs / high_freq) ** (2 * order))
+        H_bandpass = H_high * H_low
         
-        with np.errstate(divide='ignore', invalid='ignore'):
-            denominator = 1.0 + (w * BW / (w**2 - wc**2 + 1e-10)) ** (2 * order)
-            H = 1.0 / denominator
+        # Bandstop is complement of bandpass
+        H = 1.0 - H_bandpass
     
     else:
         raise ValueError(f"Unknown filter type: {filter_type}")
     
+    # Ensure the frequency response is symmetric for real signals
+    # This maintains the real nature of the output
+    if N % 2 == 0:  # Even length
+        # Make sure H[N/2:] is conjugate symmetric to H[1:N/2]
+        H[N//2+1:] = H[1:N//2][::-1]
+    else:  # Odd length
+        # Make sure H[(N+1)/2:] is conjugate symmetric to H[1:(N+1)/2]
+        H[(N+1)//2:] = H[1:(N+1)//2][::-1]
+    
     # Apply the filter in frequency domain
     filtered_fft = fft_data * H
     
-    # Convert back to time domain using manual IFFT
-    filtered_complex = manual_ifft(filtered_fft)
+    # Convert back to time domain using library IFFT
+    filtered_audio = np.fft.ifft(filtered_fft)
     
-    # Take real part and trim to original length
-    filtered_audio = np.real(filtered_complex)[:N]
+    # Take real part (should be real anyway for properly symmetric filters)
+    filtered_audio = np.real(filtered_audio)
     
     return filtered_audio
 
