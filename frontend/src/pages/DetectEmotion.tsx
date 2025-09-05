@@ -57,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = "https://1e18bf70f0bd.ngrok-free.app";
+const BASE_URL ="https://cf9f55025249.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -75,7 +75,7 @@ const DetectEmotion = () => {
   const [useHardcodedDSP, setUseHardcodedDSP] = useState<boolean>(true);
   
   // Detection method state (ML vs DSP)
-  const [detectionMethod, setDetectionMethod] = useState<'ml' | 'dsp'>('dsp');
+  const [detectionMethod, setDetectionMethod] = useState<'ml' | 'dsp'>('ml');
 
   // --- Load presets from backend with safe defaults ---
   useEffect(() => {
@@ -378,23 +378,9 @@ const DetectEmotion = () => {
               <span className="w-2 h-2 rounded-full bg-current"></span>
               🤖 ML Model
             </button>
-            <button
-              onClick={() => setDetectionMethod('dsp')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
-                detectionMethod === 'dsp'
-                  ? 'bg-orange-500 text-white shadow-lg'
-                  : 'bg-white/10 text-blue-200 hover:bg-white/20'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-current"></span>
-              🔬 DSP Rules
-            </button>
           </div>
           <p className="text-sm text-blue-200 mt-2">
-            {detectionMethod === 'ml' 
-              ? "Using emotion2vec_plus_large machine learning model for emotion detection"
-              : "Using manual DSP-based acoustic-phonetic rules for emotion classification"
-            }
+            Using emotion2vec_plus_large machine learning model for emotion detection
           </p>
         </div>
 
