@@ -275,22 +275,28 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
     energy_std = features.get('energy_std', 0)
     energy_max = features.get('energy_max', 0)
     
-    # High energy emotions: happy, angry, surprise, fear
-    if energy_mean > 0.01:  # Threshold for significant energy
-        energy_factor = min(energy_mean / 0.05, 1.0)  # Normalize
+    # Normalize energy (typical speech energy ranges from 0.1 to 100)
+    if energy_mean > 0.1:  # Threshold for significant energy
+        # Use logarithmic scaling for energy since it varies widely
+        import math
+        energy_factor = min(math.log10(energy_mean + 1) / 2.0, 1.0)  # Log scale normalization
         
-        # High energy + high variation = angry/surprise
-        if energy_std > energy_mean * 0.5:
-            emotion_scores['angry'] += 0.8 * energy_factor
-            emotion_scores['surprise'] += 0.6 * energy_factor
-            emotion_scores['fear'] += 0.4 * energy_factor
-        else:
-            # High energy + stable = happy
-            emotion_scores['happy'] += 0.7 * energy_factor
-        
-        # Low energy = sad/neutral
-        if energy_factor < 0.3:
-            emotion_scores['sad'] += 0.6 * (1 - energy_factor)
+        # Energy level classification
+        if energy_mean > 10.0:  # Very high energy
+            if energy_std > energy_mean * 0.3:  # High variation
+                emotion_scores['angry'] += 0.4 * energy_factor
+                emotion_scores['surprise'] += 0.3 * energy_factor
+                emotion_scores['fear'] += 0.2 * energy_factor
+            else:  # Stable high energy
+                emotion_scores['happy'] += 0.5 * energy_factor
+                emotion_scores['surprise'] += 0.2 * energy_factor
+        elif energy_mean > 1.0:  # Medium energy
+            emotion_scores['happy'] += 0.3 * energy_factor
+            emotion_scores['neutral'] += 0.4 * energy_factor
+            if energy_std > energy_mean * 0.4:
+                emotion_scores['angry'] += 0.2 * energy_factor
+        else:  # Low energy
+            emotion_scores['sad'] += 0.5 * (1 - energy_factor)
             emotion_scores['neutral'] += 0.4 * (1 - energy_factor)
     
     # 2. F0-based emotion indicators
@@ -300,25 +306,32 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
     f0_slope = features.get('f0_slope', 0)
     
     if f0_mean > 80:  # Valid F0
-        # High F0 = happy, surprise, fear
-        if f0_mean > 200:
-            emotion_scores['happy'] += 0.6
-            emotion_scores['surprise'] += 0.7
-            emotion_scores['fear'] += 0.5
-        elif f0_mean > 150:
-            emotion_scores['happy'] += 0.4
-            emotion_scores['neutral'] += 0.3
-        else:
-            # Low F0 = sad, angry
-            emotion_scores['sad'] += 0.5
-            emotion_scores['angry'] += 0.4
-        
-        # High F0 variation = emotional (not neutral)
-        if f0_std > 20:
-            emotion_scores['angry'] += 0.4
-            emotion_scores['surprise'] += 0.3
+        # F0 ranges: Male 85-180Hz, Female 165-265Hz
+        if f0_mean > 220:  # Very high F0
+            emotion_scores['surprise'] += 0.4
             emotion_scores['fear'] += 0.3
-            emotion_scores['neutral'] -= 0.3
+            emotion_scores['happy'] += 0.3
+        elif f0_mean > 180:  # High F0  
+            emotion_scores['happy'] += 0.4
+            emotion_scores['surprise'] += 0.2
+            emotion_scores['neutral'] += 0.2
+        elif f0_mean > 120:  # Medium F0
+            emotion_scores['neutral'] += 0.4
+            emotion_scores['happy'] += 0.2
+        else:  # Low F0 (80-120)
+            emotion_scores['sad'] += 0.3
+            emotion_scores['angry'] += 0.2
+            emotion_scores['neutral'] += 0.2
+        
+        # F0 variation indicates emotional activation
+        if f0_std > 25:  # High variation
+            emotion_scores['angry'] += 0.2
+            emotion_scores['surprise'] += 0.2
+            emotion_scores['fear'] += 0.1
+            emotion_scores['neutral'] -= 0.1
+        elif f0_std < 10:  # Very stable
+            emotion_scores['neutral'] += 0.2
+            emotion_scores['sad'] += 0.1
         
         # F0 contour
         if f0_slope > 5:  # Rising pitch = surprise/happy
@@ -333,36 +346,46 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
     spectral_flux = features.get('spectral_flux_mean', 0)
     
     if spectral_centroid > 1000:
-        # Bright spectrum = happy, surprise
-        if spectral_centroid > 2500:
-            emotion_scores['happy'] += 0.5
-            emotion_scores['surprise'] += 0.4
-        elif spectral_centroid < 1800:
-            # Dark spectrum = sad, angry
-            emotion_scores['sad'] += 0.4
-            emotion_scores['angry'] += 0.3
-        
-        # High spectral spread = emotional activation
-        if spectral_spread > 1000:
-            emotion_scores['angry'] += 0.3
+        # Spectral centroid ranges: 1000-4000Hz typical for speech
+        if spectral_centroid > 3000:  # Very bright
+            emotion_scores['surprise'] += 0.3
             emotion_scores['fear'] += 0.2
-            emotion_scores['neutral'] -= 0.2
+            emotion_scores['happy'] += 0.2
+        elif spectral_centroid > 2200:  # Bright
+            emotion_scores['happy'] += 0.3
+            emotion_scores['neutral'] += 0.2
+        elif spectral_centroid > 1600:  # Medium
+            emotion_scores['neutral'] += 0.3
+            emotion_scores['happy'] += 0.1
+        else:  # Dark (1000-1600)
+            emotion_scores['sad'] += 0.2
+            emotion_scores['angry'] += 0.1
+        
+        # Spectral spread indicates voice quality variation
+        if spectral_spread > 800:  # High spread
+            emotion_scores['angry'] += 0.1
+            emotion_scores['fear'] += 0.1
+        elif spectral_spread < 400:  # Low spread (focused spectrum)
+            emotion_scores['neutral'] += 0.1
         
         # High spectral flux = dynamic emotions
-        if spectral_flux > 0.1:
-            emotion_scores['angry'] += 0.3
-            emotion_scores['surprise'] += 0.2
-            emotion_scores['fear'] += 0.2
+        if spectral_flux > 0.2:  # Increased threshold
+            emotion_scores['angry'] += 0.1  # Reduced weight
+            emotion_scores['surprise'] += 0.1
+            emotion_scores['fear'] += 0.1
     
     # 4. Temporal features
     zcr = features.get('zcr', 0)
     duration = features.get('duration', 0)
     
-    # High ZCR = fricatives/unvoiced sounds (angry, fear)
-    if zcr > 0.1:
-        emotion_scores['angry'] += 0.3
-        emotion_scores['fear'] += 0.2
-        emotion_scores['disgust'] += 0.2
+    # Zero crossing rate indicates voicing characteristics
+    if zcr > 0.15:  # Very high ZCR = lots of unvoiced sounds
+        emotion_scores['angry'] += 0.1  # Reduced weight
+        emotion_scores['fear'] += 0.1
+        emotion_scores['disgust'] += 0.1
+    elif zcr < 0.05:  # Very low ZCR = mostly voiced
+        emotion_scores['sad'] += 0.1
+        emotion_scores['neutral'] += 0.1
     
     # Duration effects
     if duration > 0:
@@ -372,14 +395,21 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
             emotion_scores['sad'] += 0.1
             emotion_scores['neutral'] += 0.1
     
-    # Normalize scores
-    max_score = max(emotion_scores.values())
-    if max_score > 0:
-        for emotion in emotion_scores:
-            emotion_scores[emotion] = max(0, emotion_scores[emotion] / max_score)
-    
-    # Add baseline neutral score
+    # Add baseline scores to prevent extreme predictions
     emotion_scores['neutral'] = max(0.3, emotion_scores['neutral'])
+    emotion_scores['happy'] = max(0.1, emotion_scores['happy'])
+    emotion_scores['sad'] = max(0.1, emotion_scores['sad'])
+    
+    # Normalize scores using softmax-like approach for better distribution
+    total_score = sum(emotion_scores.values())
+    if total_score > 0:
+        for emotion in emotion_scores:
+            emotion_scores[emotion] = emotion_scores[emotion] / total_score
+    
+    # Apply smoothing to prevent overconfident predictions
+    smoothing = 0.05
+    for emotion in emotion_scores:
+        emotion_scores[emotion] = (1 - smoothing) * emotion_scores[emotion] + smoothing / len(emotion_scores)
     
     # Find best emotion
     best_emotion = max(emotion_scores.items(), key=lambda x: x[1])
@@ -391,8 +421,9 @@ def classify_emotion_dsp(features: Dict[str, float]) -> Dict[str, Any]:
     top_emotions = [{"emotion": emotion, "score": float(score)} for emotion, score in sorted_emotions]
     
     logger.info(f"=== DSP-BASED EMOTION CLASSIFICATION ===")
-    logger.info(f"Features: Energy={energy_mean:.4f}, F0={f0_mean:.1f}Hz, Centroid={spectral_centroid:.1f}Hz")
-    logger.info(f"Emotion scores: {emotion_scores}")
+    logger.info(f"Features: Energy={energy_mean:.4f}, F0={f0_mean:.1f}Hz, Centroid={spectral_centroid:.1f}Hz, ZCR={zcr:.3f}")
+    logger.info(f"Energy factor: {min(math.log10(energy_mean + 1) / 2.0, 1.0):.3f}")
+    logger.info(f"Raw emotion scores: {emotion_scores}")
     logger.info(f"Predicted: {predicted_emotion} (confidence: {confidence:.3f})")
     logger.info("=== END EMOTION CLASSIFICATION ===")
     
