@@ -398,42 +398,40 @@ const DetectEmotion = () => {
           </p>
         </div>
 
-        {/* DSP Method Selector - only show when DSP detection is selected */}
-        {detectionMethod === 'dsp' && (
-          <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
-            <h2 className="text-xl font-bold text-white mb-4">DSP Implementation Method</h2>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setUseHardcodedDSP(true)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
-                  useHardcodedDSP
-                    ? 'bg-green-500 text-white shadow-lg'
-                    : 'bg-white/10 text-blue-200 hover:bg-white/20'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-current"></span>
-                Hardcoded DSP
-              </button>
-              <button
-                onClick={() => setUseHardcodedDSP(false)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
-                  !useHardcodedDSP
-                    ? 'bg-purple-500 text-white shadow-lg'
-                    : 'bg-white/10 text-blue-200 hover:bg-white/20'
-                }`}
-              >
-                <span className="w-2 h-2 rounded-full bg-current"></span>
-                Library Functions
-              </button>
-            </div>
-            <p className="text-sm text-blue-200 mt-2">
-              {useHardcodedDSP 
-                ? "Using custom hardcoded DSP implementations (FFT, filters, etc.)"
-                : "Using SciPy and NumPy library functions for DSP processing"
-              }
-            </p>
+        {/* DSP Preprocessing Method Selector - show for both ML and DSP detection methods */}
+        <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
+          <h2 className="text-xl font-bold text-white mb-4">DSP Preprocessing Method</h2>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setUseHardcodedDSP(true)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
+                useHardcodedDSP
+                  ? 'bg-green-500 text-white shadow-lg'
+                  : 'bg-white/10 text-blue-200 hover:bg-white/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-current"></span>
+              Hardcoded DSP
+            </button>
+            <button
+              onClick={() => setUseHardcodedDSP(false)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
+                !useHardcodedDSP
+                  ? 'bg-purple-500 text-white shadow-lg'
+                  : 'bg-white/10 text-blue-200 hover:bg-white/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-current"></span>
+              Library Functions
+            </button>
           </div>
-        )}
+          <p className="text-sm text-blue-200 mt-2">
+            {useHardcodedDSP 
+              ? "Using custom hardcoded DSP implementations for preprocessing (FFT, filters, etc.)"
+              : "Using SciPy and NumPy library functions for DSP preprocessing"
+            }
+          </p>
+        </div>
 
         <div className="grid lg:grid-cols-2 gap-8 items-start">
           {/* Recording Section */}
