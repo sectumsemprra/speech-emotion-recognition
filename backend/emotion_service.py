@@ -125,15 +125,15 @@ def detect_emotion_from_file(
         confidence = float(scores[best_idx])
         
         # Replace <unk> with neutral for better user experience
-        if best_emotion == '<unk>':
-            best_emotion = 'neutral'
+        # if best_emotion == '<unk>':
+        #     best_emotion = 'neutral'
         
         # Sort all emotions by score
         emotion_pairs = list(zip(emotions, scores))
         sorted_emotions = sorted(emotion_pairs, key=lambda x: x[1], reverse=True)
         # Replace <unk> with neutral in the top emotions list too
-        top_emotions = [{"emotion": "neutral" if e == "<unk>" else e, "score": float(s)} for e, s in sorted_emotions]
-        
+        # top_emotions = [{"emotion": "neutral" if e == "<unk>" else e, "score": float(s)} for e, s in sorted_emotions]
+        top_emotions = [{"emotion": e, "score": float(s)} for e, s in sorted_emotions]
         artifact_urls = [f"/artifacts/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)}" for p in artifacts]
         processed_url = f"/artifacts/{os.path.basename(os.path.dirname(processed_wav))}/{os.path.basename(processed_wav)}"
 

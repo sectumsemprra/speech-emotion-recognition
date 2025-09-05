@@ -57,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = "https://29b7076e19d8.ngrok-free.app";
+const BASE_URL = "https://cdf830b5b44f.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
