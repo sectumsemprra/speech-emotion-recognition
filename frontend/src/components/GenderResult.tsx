@@ -158,7 +158,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
             </div>
           </div>
           
-          <div className="bg-white/5 rounded-lg p-4">
+          {/* <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">First Formant (F1)</div>
             <div className="text-lg font-semibold text-white">
               {formatFrequency(data.feature_analysis?.f1_hz || data.features_used?.f1_approx || 0)}
@@ -176,7 +176,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
             <div className="text-xs text-blue-300 mt-1">
               Vowel characteristics
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
 
