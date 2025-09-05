@@ -57,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = "https://9073093eefeb.ngrok-free.app";
+const BASE_URL = "https://5e7d5507d1fc.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -70,6 +70,9 @@ const DetectEmotion = () => {
   const [selectedPreset, setSelectedPreset] = useState<string>(''); // choose after presets load
   const [presetsLoading, setPresetsLoading] = useState<boolean>(true);
   const [presetsError, setPresetsError] = useState<string | null>(null);
+  
+  // DSP method state (hardcoded vs library)
+  const [useHardcodedDSP, setUseHardcodedDSP] = useState<boolean>(true);
 
   // --- Load presets from backend with safe defaults ---
   useEffect(() => {
@@ -140,6 +143,9 @@ const DetectEmotion = () => {
     if (typeof preset.cutoff === 'number') {
       qp.set('cutoff', String(preset.cutoff));
     }
+
+    // Add DSP method parameter
+    qp.set('use_hardcoded_dsp', String(useHardcodedDSP));
 
     return qp;
   };
@@ -349,6 +355,41 @@ const DetectEmotion = () => {
           {presetsError && (
             <p className="mt-2 text-xs text-yellow-300">{presetsError}</p>
           )}
+        </div>
+
+        {/* DSP Method Selector */}
+        <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
+          <h2 className="text-xl font-bold text-white mb-4">DSP Implementation Method</h2>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setUseHardcodedDSP(true)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
+                useHardcodedDSP
+                  ? 'bg-green-500 text-white shadow-lg'
+                  : 'bg-white/10 text-blue-200 hover:bg-white/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-current"></span>
+              Hardcoded DSP
+            </button>
+            <button
+              onClick={() => setUseHardcodedDSP(false)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 ${
+                !useHardcodedDSP
+                  ? 'bg-purple-500 text-white shadow-lg'
+                  : 'bg-white/10 text-blue-200 hover:bg-white/20'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-current"></span>
+              Library Functions
+            </button>
+          </div>
+          <p className="text-sm text-blue-200 mt-2">
+            {useHardcodedDSP 
+              ? "Using custom hardcoded DSP implementations (FFT, filters, etc.)"
+              : "Using SciPy and NumPy library functions for DSP processing"
+            }
+          </p>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8 items-start">

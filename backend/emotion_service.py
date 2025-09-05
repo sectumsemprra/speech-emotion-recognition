@@ -18,6 +18,7 @@ from pyngrok import ngrok
 # Import gender classification functions from gender_service.py
 from gender_service import extract_audio_features, classify_gender as classify_gender_dsp
 from services.dsp_preprocess import dsp_preprocess
+from services.dsp_preprocess_library import dsp_preprocess as dsp_preprocess_library
 from services.emotion_timeline import compute_emotion_timeline
 from fastapi.staticfiles import StaticFiles
 
@@ -53,7 +54,8 @@ def detect_emotion_from_file(
     low_cutoff: float = 300.0,
     high_cutoff: float = 3400.0,
     cutoff: Optional[float] = None,
-    filter_order: int = 5
+    filter_order: int = 5,
+    use_hardcoded_dsp: bool = True
 ) -> Dict[str, Any]:
     """Run emotion detection on an audio file with optional DSP preprocessing"""
     global model
@@ -61,15 +63,27 @@ def detect_emotion_from_file(
     if model is None:
         raise RuntimeError("Model not loaded")
     
-    dsp_report, processed_wav, artifacts = dsp_preprocess(
-        audio_path=audio_file_path,
-        fs_target=16000,
-        apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
-        quant_bits=8,
-        use_mu_law=True,
-        preemph_alpha=0.97,
-        agc_target_rms=0.1,
-    )
+    # Choose DSP preprocessing method based on parameter
+    if use_hardcoded_dsp:
+        dsp_report, processed_wav, artifacts = dsp_preprocess(
+            audio_path=audio_file_path,
+            fs_target=16000,
+            apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+            quant_bits=8,
+            use_mu_law=True,
+            preemph_alpha=0.97,
+            agc_target_rms=0.1,
+        )
+    else:
+        dsp_report, processed_wav, artifacts = dsp_preprocess_library(
+            audio_path=audio_file_path,
+            fs_target=16000,
+            apply_quantization_for_analysis=True,   # analysis plots only; model uses clean processed signal
+            quant_bits=8,
+            use_mu_law=True,
+            preemph_alpha=0.97,
+            agc_target_rms=0.1,
+        )
 
     timeline_report, heatmap_path = compute_emotion_timeline(model, processed_wav, frame_ms=400, hop_ms=200, fs_target=16000, plot=True)
     
@@ -151,7 +165,8 @@ def detect_emotion_from_file(
             "topEmotions": top_emotions,
             "preprocessing": {
                 "filter_applied": filter_applied,
-                "filter_info": filter_info
+                "filter_info": filter_info,
+                "dsp_method": "hardcoded" if use_hardcoded_dsp else "library"
             },
             "dsp_report": dsp_report,
             "artifacts": {
@@ -207,7 +222,8 @@ async def predict_emotion(
     low_cutoff: float = Query(300.0, description="Low cutoff frequency (Hz) for bandpass"),
     high_cutoff: float = Query(3400.0, description="High cutoff frequency (Hz) for bandpass"),
     cutoff: Optional[float] = Query(None, description="Single cutoff frequency (Hz) for lowpass/highpass"),
-    filter_order: int = Query(5, description="Filter order (1-10)")
+    filter_order: int = Query(5, description="Filter order (1-10)"),
+    use_hardcoded_dsp: bool = Query(True, description="Use hardcoded DSP methods (True) or library functions (False)")
 ):
     """Predict emotion from uploaded audio file with optional DSP preprocessing"""
     try:
@@ -260,7 +276,8 @@ async def predict_emotion(
                 low_cutoff=low_cutoff,
                 high_cutoff=high_cutoff,
                 cutoff=cutoff,
-                filter_order=filter_order
+                filter_order=filter_order,
+                use_hardcoded_dsp=use_hardcoded_dsp
             )
             
             logger.info(f"Emotion detected: {result['emotion']} ({result['confidence']:.2f}) "
@@ -288,7 +305,8 @@ async def predict_emotion(
                 "topEmotions": [],
                 "preprocessing": {
                     "filter_applied": False,
-                    "filter_info": {}
+                    "filter_info": {},
+                    "dsp_method": "hardcoded" if use_hardcoded_dsp else "library"
                 }
             }
         )
