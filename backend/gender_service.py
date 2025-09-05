@@ -7,6 +7,7 @@ A FastAPI service for gender classification using DSP techniques
 import os
 import tempfile
 import logging
+import math
 from typing import Dict, Any
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -18,135 +19,310 @@ from pyngrok import ngrok
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_audio_features(audio_path: str) -> Dict[str, float]:
-    """Extract DSP features from audio for gender classification"""
+def extract_audio_features(audio_path: str, manual: bool = False) -> Dict[str, float]:
+    """Extract DSP features from audio for gender classification using manual DSP or FFT"""
     try:
-        import librosa
-        import scipy.signal
-        from scipy.fft import fft
+        import librosa  # Only for audio loading and basic operations
+        from services.manual_dsp_core import ManualDSPCore, frequency_bins
         
-        # Load audio
+        # Load audio (still use librosa for file I/O convenience)
         y, sr = librosa.load(audio_path, sr=16000)
         
-        # Remove silence
-        y = librosa.effects.trim(y, top_db=20)[0]
+        # Manual silence trimming using energy-based detection
+        def trim_silence(signal, top_db=20):
+            # Calculate frame energy
+            frame_length = 2048
+            hop_length = 512
+            
+            energy = []
+            for i in range(0, len(signal) - frame_length + 1, hop_length):
+                frame = signal[i:i + frame_length]
+                frame_energy = sum(x**2 for x in frame)
+                energy.append(frame_energy)
+            
+            if not energy:
+                return signal
+            
+            # Convert to dB
+            max_energy = max(energy)
+            if max_energy == 0:
+                return signal
+            
+            energy_db = [10 * math.log10(e / max_energy) if e > 0 else -100 for e in energy]
+            threshold = max(energy_db) - top_db
+            
+            # Find start and end of non-silent region
+            start_idx = 0
+            end_idx = len(energy) - 1
+            
+            for i, e in enumerate(energy_db):
+                if e > threshold:
+                    start_idx = i
+                    break
+            
+            for i in range(len(energy_db) - 1, -1, -1):
+                if energy_db[i] > threshold:
+                    end_idx = i
+                    break
+            
+            # Convert frame indices to sample indices
+            start_sample = start_idx * hop_length
+            end_sample = min(len(signal), (end_idx + 1) * hop_length + frame_length)
+            
+            return signal[start_sample:end_sample]
+        
+        y = trim_silence(y)
         
         if len(y) == 0:
             raise ValueError("Audio file contains no sound")
         
         features = {}
         
-        # 1. Fundamental Frequency (F0) - Key gender indicator
-        # Try multiple F0 detection methods
+        # 1. Fundamental Frequency (F0) - Key gender indicator using manual autocorrelation
         try:
-            # Method 1: YIN algorithm
-            f0_yin = librosa.yin(y, fmin=50, fmax=500, sr=sr)
-            f0_clean = f0_yin[f0_yin > 0]
+            # Frame-based F0 detection using autocorrelation
+            frame_length = 1024
+            hop_length = 512
+            f0_values = []
             
-            if len(f0_clean) > 5:  # Need at least some frames
-                features['f0_mean'] = float(np.mean(f0_clean))
-                features['f0_std'] = float(np.std(f0_clean))
-                features['f0_median'] = float(np.median(f0_clean))
-            else:
-                # Method 2: Try piptrack as fallback
-                pitches, magnitudes = librosa.piptrack(y=y, sr=sr, threshold=0.1, fmin=50, fmax=500)
-                pitch_values = []
-                for t in range(pitches.shape[1]):
-                    index = magnitudes[:, t].argmax()
-                    pitch = pitches[index, t]
-                    if pitch > 0:
-                        pitch_values.append(pitch)
+            for i in range(0, len(y) - frame_length + 1, hop_length):
+                frame = y[i:i + frame_length]
                 
-                if len(pitch_values) > 5:
-                    features['f0_mean'] = float(np.mean(pitch_values))
-                    features['f0_std'] = float(np.std(pitch_values))
-                    features['f0_median'] = float(np.median(pitch_values))
+                # Apply window to reduce edge effects
+                window = ManualDSPCore.hamming_window(frame_length)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
+                
+                # Calculate autocorrelation
+                autocorr = ManualDSPCore.autocorrelation_fast(windowed_frame, frame_length // 2, manual=manual)
+                
+                # Find F0 in expected range (50-500 Hz)
+                min_period = int(sr / 500)  # Max F0 = 500Hz
+                max_period = int(sr / 50)   # Min F0 = 50Hz
+                
+                if max_period < len(autocorr):
+                    # Search for maximum in the valid range
+                    search_range = autocorr[min_period:min(max_period, len(autocorr))]
+                    if search_range:
+                        max_idx = search_range.index(max(search_range))
+                        period = max_idx + min_period
+                        
+                        # Validate the peak (should be significant)
+                        if autocorr[period] > 0.3 * autocorr[0]:  # At least 30% of zero-lag
+                            f0 = sr / period
+                            if 50 <= f0 <= 500:  # Valid F0 range
+                                f0_values.append(f0)
+            
+            if len(f0_values) > 3:  # Need at least some valid frames
+                features['f0_mean'] = float(sum(f0_values) / len(f0_values))
+                
+                # Manual standard deviation calculation
+                mean_f0 = features['f0_mean']
+                variance = sum((f0 - mean_f0) ** 2 for f0 in f0_values) / len(f0_values)
+                features['f0_std'] = float(math.sqrt(variance))
+                
+                # Manual median calculation
+                sorted_f0 = sorted(f0_values)
+                n = len(sorted_f0)
+                if n % 2 == 0:
+                    features['f0_median'] = float((sorted_f0[n//2 - 1] + sorted_f0[n//2]) / 2)
                 else:
-                    # Last resort: estimate from autocorrelation
-                    from scipy.signal import correlate
-                    
-                    # Use middle section of audio
-                    mid_start = len(y) // 4
-                    mid_end = 3 * len(y) // 4
-                    y_mid = y[mid_start:mid_end]
-                    
-                    if len(y_mid) > 1000:
-                        autocorr = correlate(y_mid, y_mid, mode='full')
-                        autocorr = autocorr[autocorr.size // 2:]
-                        
-                        # Find peak in expected F0 range
-                        min_period = int(sr / 500)  # Max F0 = 500Hz
-                        max_period = int(sr / 50)   # Min F0 = 50Hz
-                        
-                        if max_period < len(autocorr):
-                            search_range = autocorr[min_period:max_period]
-                            if len(search_range) > 0:
-                                peak_idx = np.argmax(search_range) + min_period
-                                estimated_f0 = sr / peak_idx
-                                features['f0_mean'] = float(estimated_f0)
-                                features['f0_std'] = 0.0
-                                features['f0_median'] = float(estimated_f0)
-                            else:
-                                features['f0_mean'] = 0.0
-                                features['f0_std'] = 0.0
-                                features['f0_median'] = 0.0
-                        else:
-                            features['f0_mean'] = 0.0
-                            features['f0_std'] = 0.0
-                            features['f0_median'] = 0.0
-                    else:
-                        features['f0_mean'] = 0.0
-                        features['f0_std'] = 0.0
-                        features['f0_median'] = 0.0
-        except:
+                    features['f0_median'] = float(sorted_f0[n//2])
+            else:
+                features['f0_mean'] = 0.0
+                features['f0_std'] = 0.0
+                features['f0_median'] = 0.0
+                
+        except Exception as e:
+            logger.warning(f"F0 extraction failed: {e}")
             features['f0_mean'] = 0.0
             features['f0_std'] = 0.0
             features['f0_median'] = 0.0
         
-        # 2. Spectral Centroid - Brightness of voice
-        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-        features['spectral_centroid_mean'] = float(np.mean(spectral_centroids))
-        features['spectral_centroid_std'] = float(np.std(spectral_centroids))
-        
-        # 3. MFCCs - Vocal tract characteristics
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-        for i in range(min(5, mfccs.shape[0])):  # Use first 5 MFCCs
-            features[f'mfcc_{i}_mean'] = float(np.mean(mfccs[i]))
-            features[f'mfcc_{i}_std'] = float(np.std(mfccs[i]))
-        
-        # 4. Simplified formant estimation using spectral peaks
+        # 2. Spectral Centroid - Brightness of voice using manual FFT
         try:
-            # Get power spectrum
-            fft = np.fft.rfft(y)
-            magnitude = np.abs(fft)
-            freq_bins = np.fft.rfftfreq(len(y), 1/sr)
+            frame_length = 2048
+            hop_length = 512
+            centroids = []
             
-            # Smooth the spectrum to find broad peaks
-            from scipy.signal import savgol_filter, find_peaks
-            smoothed_magnitude = savgol_filter(magnitude, 51, 3)
+            for i in range(0, len(y) - frame_length + 1, hop_length):
+                frame = y[i:i + frame_length]
+                
+                # Apply window
+                window = ManualDSPCore.hamming_window(frame_length)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
+                
+                # Calculate spectral centroid with fast/manual option
+                centroid = ManualDSPCore.spectral_centroid_fast(windowed_frame, sr, manual=manual)
+                if centroid > 0:
+                    centroids.append(centroid)
+            
+            if centroids:
+                features['spectral_centroid_mean'] = float(sum(centroids) / len(centroids))
+                
+                # Manual standard deviation
+                mean_centroid = features['spectral_centroid_mean']
+                variance = sum((c - mean_centroid) ** 2 for c in centroids) / len(centroids)
+                features['spectral_centroid_std'] = float(math.sqrt(variance))
+            else:
+                features['spectral_centroid_mean'] = 0.0
+                features['spectral_centroid_std'] = 0.0
+                
+        except Exception as e:
+            logger.warning(f"Spectral centroid extraction failed: {e}")
+            features['spectral_centroid_mean'] = 0.0
+            features['spectral_centroid_std'] = 0.0
+        
+        # 3. MFCCs - Vocal tract characteristics using manual implementation
+        try:
+            def manual_mfcc(signal, sr, n_mfcc=13, n_mels=26):
+                """Manual MFCC implementation"""
+                frame_length = 2048
+                hop_length = 512
+                
+                # Create mel filter bank
+                def mel_scale(f):
+                    return 2595 * math.log10(1 + f / 700)
+                
+                def inv_mel_scale(m):
+                    return 700 * (10**(m / 2595) - 1)
+                
+                # Mel frequency range
+                mel_min = mel_scale(0)
+                mel_max = mel_scale(sr / 2)
+                mel_points = [mel_min + (mel_max - mel_min) * i / (n_mels + 1) for i in range(n_mels + 2)]
+                hz_points = [inv_mel_scale(m) for m in mel_points]
+                
+                # Convert to FFT bin numbers
+                fft_bins = [int(f * frame_length / sr) for f in hz_points]
+                
+                # Create mel filters
+                mel_filters = []
+                for i in range(1, len(fft_bins) - 1):
+                    filter_bank = [0.0] * (frame_length // 2 + 1)
+                    
+                    # Left slope
+                    for j in range(fft_bins[i-1], fft_bins[i]):
+                        if fft_bins[i] != fft_bins[i-1]:
+                            filter_bank[j] = (j - fft_bins[i-1]) / (fft_bins[i] - fft_bins[i-1])
+                    
+                    # Right slope
+                    for j in range(fft_bins[i], fft_bins[i+1]):
+                        if fft_bins[i+1] != fft_bins[i]:
+                            filter_bank[j] = (fft_bins[i+1] - j) / (fft_bins[i+1] - fft_bins[i])
+                    
+                    mel_filters.append(filter_bank)
+                
+                # Process frames
+                mfcc_frames = []
+                for i in range(0, len(signal) - frame_length + 1, hop_length):
+                    frame = signal[i:i + frame_length]
+                    
+                    # Apply window
+                    window = ManualDSPCore.hamming_window(frame_length)
+                    windowed_frame = ManualDSPCore.apply_window(frame, window)
+                    
+                    # DFT using fast/manual option
+                    X_real, X_imag = ManualDSPCore.dft_fast(windowed_frame, manual=manual)
+                    power_spectrum = ManualDSPCore.power_spectrum(X_real, X_imag)
+                    
+                    # Apply mel filters
+                    mel_energies = []
+                    for mel_filter in mel_filters:
+                        energy = sum(p * f for p, f in zip(power_spectrum, mel_filter))
+                        mel_energies.append(max(energy, 1e-10))  # Avoid log(0)
+                    
+                    # Log mel energies
+                    log_mel = [math.log(e) for e in mel_energies]
+                    
+                    # DCT to get MFCCs (simplified version)
+                    mfccs_frame = []
+                    for k in range(n_mfcc):
+                        mfcc_k = 0
+                        for n in range(len(log_mel)):
+                            mfcc_k += log_mel[n] * math.cos(math.pi * k * (n + 0.5) / len(log_mel))
+                        mfccs_frame.append(mfcc_k)
+                    
+                    mfcc_frames.append(mfccs_frame)
+                
+                return mfcc_frames
+            
+            mfcc_frames = manual_mfcc(list(y), sr, n_mfcc=13)
+            
+            if mfcc_frames:
+                # Calculate statistics for first 5 MFCCs
+                for i in range(min(5, 13)):
+                    mfcc_values = [frame[i] for frame in mfcc_frames]
+                    
+                    if mfcc_values:
+                        # Mean
+                        features[f'mfcc_{i}_mean'] = float(sum(mfcc_values) / len(mfcc_values))
+                        
+                        # Standard deviation
+                        mean_val = features[f'mfcc_{i}_mean']
+                        variance = sum((val - mean_val) ** 2 for val in mfcc_values) / len(mfcc_values)
+                        features[f'mfcc_{i}_std'] = float(math.sqrt(variance))
+                    else:
+                        features[f'mfcc_{i}_mean'] = 0.0
+                        features[f'mfcc_{i}_std'] = 0.0
+            else:
+                for i in range(5):
+                    features[f'mfcc_{i}_mean'] = 0.0
+                    features[f'mfcc_{i}_std'] = 0.0
+                    
+        except Exception as e:
+            logger.warning(f"MFCC extraction failed: {e}")
+            for i in range(5):
+                features[f'mfcc_{i}_mean'] = 0.0
+                features[f'mfcc_{i}_std'] = 0.0
+        
+        # 4. Simplified formant estimation using manual spectral peaks
+        try:
+            # Use entire signal for formant estimation
+            window = ManualDSPCore.hamming_window(len(y))
+            windowed_signal = ManualDSPCore.apply_window(list(y), window)
+            
+            # Get power spectrum using fast/manual DFT
+            X_real, X_imag = ManualDSPCore.dft_fast(windowed_signal, manual=manual)
+            magnitude = ManualDSPCore.magnitude_spectrum(X_real, X_imag)
+            freq_bins = frequency_bins(len(y), sr)
+            
+            # Manual smoothing using moving average
+            smoothed_magnitude = ManualDSPCore.smooth_signal(magnitude, 51)
             
             # Find peaks in formant range (200-4000 Hz)
-            formant_mask = (freq_bins >= 200) & (freq_bins <= 4000)
-            formant_freqs = freq_bins[formant_mask]
-            formant_mags = smoothed_magnitude[formant_mask]
+            formant_start_idx = 0
+            formant_end_idx = len(freq_bins) - 1
             
-            # Find prominent peaks
-            peaks, properties = find_peaks(formant_mags, height=np.max(formant_mags) * 0.1, distance=50)
+            for i, f in enumerate(freq_bins):
+                if f >= 200 and formant_start_idx == 0:
+                    formant_start_idx = i
+                if f <= 4000:
+                    formant_end_idx = i
             
-            if len(peaks) >= 2:
-                # Sort by frequency (formants should be ordered)
-                peak_freqs = formant_freqs[peaks]
-                peak_heights = formant_mags[peaks]
+            # Extract formant region
+            formant_freqs = freq_bins[formant_start_idx:formant_end_idx + 1]
+            formant_mags = smoothed_magnitude[formant_start_idx:formant_end_idx + 1]
+            
+            if formant_mags:
+                # Find peaks manually
+                threshold = max(formant_mags) * 0.1
+                peaks = ManualDSPCore.find_peaks(formant_mags, height=threshold, distance=50)
                 
-                # Get the two strongest peaks in formant range
-                sorted_indices = np.argsort(peak_heights)[::-1]  # Highest first
+                if len(peaks) >= 2:
+                    # Get peak frequencies
+                    peak_freqs = [formant_freqs[p] for p in peaks]
+                    peak_heights = [formant_mags[p] for p in peaks]
+                    
+                    # Sort by height (strongest first)
+                    sorted_pairs = sorted(zip(peak_freqs, peak_heights), key=lambda x: x[1], reverse=True)
+                    peak_freqs_sorted = [pair[0] for pair in sorted_pairs]
                 
                 # Try to identify F1 and F2 based on typical ranges
-                f1_candidates = peak_freqs[(peak_freqs >= 200) & (peak_freqs <= 1200)]
-                f2_candidates = peak_freqs[(peak_freqs >= 800) & (peak_freqs <= 3000)]
+                    f1_candidates = [f for f in peak_freqs_sorted if 200 <= f <= 1200]
+                    f2_candidates = [f for f in peak_freqs_sorted if 800 <= f <= 3000]
                 
-                features['f1_approx'] = float(f1_candidates[0]) if len(f1_candidates) > 0 else 0.0
-                features['f2_approx'] = float(f2_candidates[0]) if len(f2_candidates) > 0 else 0.0
+                    features['f1_approx'] = float(f1_candidates[0]) if f1_candidates else 0.0
+                    features['f2_approx'] = float(f2_candidates[0]) if f2_candidates else 0.0
                 
                 # Ensure F2 > F1 (basic sanity check)
                 if features['f1_approx'] > 0 and features['f2_approx'] > 0:
@@ -155,30 +331,103 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
                             features['f2_approx'] = float(f2_candidates[1])
                         else:
                             features['f2_approx'] = features['f1_approx'] * 1.5  # Rough estimate
+                else:
+                    features['f1_approx'] = 0.0
+                    features['f2_approx'] = 0.0
             else:
                 features['f1_approx'] = 0.0
                 features['f2_approx'] = 0.0
                 
         except Exception as e:
+            logger.warning(f"Formant extraction failed: {e}")
             features['f1_approx'] = 0.0
             features['f2_approx'] = 0.0
         
-        # 5. Spectral rolloff
-        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
-        features['spectral_rolloff_mean'] = float(np.mean(rolloff))
+        # 5. Spectral rolloff using manual implementation
+        try:
+            frame_length = 2048
+            hop_length = 512
+            rolloffs = []
+            
+            for i in range(0, len(y) - frame_length + 1, hop_length):
+                frame = y[i:i + frame_length]
+                
+                # Apply window
+                window = ManualDSPCore.hamming_window(frame_length)
+                windowed_frame = ManualDSPCore.apply_window(list(frame), window)
+                
+                # Calculate spectral rolloff with fast/manual option
+                rolloff = ManualDSPCore.spectral_rolloff_fast(windowed_frame, sr, 0.85, manual=manual)
+                rolloffs.append(rolloff)
+            
+            if rolloffs:
+                features['spectral_rolloff_mean'] = float(sum(rolloffs) / len(rolloffs))
+            else:
+                features['spectral_rolloff_mean'] = 0.0
+                
+        except Exception as e:
+            logger.warning(f"Spectral rolloff extraction failed: {e}")
+            features['spectral_rolloff_mean'] = 0.0
         
-        # 6. Zero crossing rate
-        zcr = librosa.feature.zero_crossing_rate(y)[0]
-        features['zcr_mean'] = float(np.mean(zcr))
+        # 6. Zero crossing rate using manual implementation
+        try:
+            features['zcr_mean'] = float(ManualDSPCore.zero_crossing_rate(list(y)))
+        except Exception as e:
+            logger.warning(f"ZCR extraction failed: {e}")
+            features['zcr_mean'] = 0.0
         
-        # 7. Harmonic-to-noise ratio approximation
-        harmonic, percussive = librosa.effects.hpss(y)
-        harmonic_power = np.mean(harmonic**2)
-        noise_power = np.mean((y - harmonic)**2)
-        if noise_power > 0:
-            features['hnr_approx'] = float(10 * np.log10(harmonic_power / noise_power))
-        else:
-            features['hnr_approx'] = 20.0  # High HNR if no noise
+        # 7. Harmonic-to-noise ratio approximation using manual method
+        try:
+            # Simple harmonic extraction using autocorrelation-based pitch detection
+            frame_length = 2048
+            hop_length = 512
+            harmonic_energies = []
+            noise_energies = []
+            
+            for i in range(0, len(y) - frame_length + 1, hop_length):
+                frame = y[i:i + frame_length]
+                
+                # Estimate fundamental period using autocorrelation
+                autocorr = ManualDSPCore.autocorrelation_fast(list(frame), frame_length // 2, manual=manual)
+                
+                # Find the period (skip first few lags to avoid zero-lag peak)
+                min_period = int(sr / 500)  # Max F0 = 500Hz
+                max_period = int(sr / 50)   # Min F0 = 50Hz
+                
+                if max_period < len(autocorr):
+                    search_range = autocorr[min_period:min(max_period, len(autocorr))]
+                    if search_range:
+                        period = search_range.index(max(search_range)) + min_period
+                        
+                        # Extract harmonic component (simplified)
+                        harmonic_signal = [0.0] * len(frame)
+                        for j in range(len(frame)):
+                            if j + period < len(frame):
+                                harmonic_signal[j] = (frame[j] + frame[j + period]) / 2
+                        
+                        # Calculate energies
+                        harmonic_energy = sum(h**2 for h in harmonic_signal)
+                        total_energy = sum(f**2 for f in frame)
+                        noise_energy = total_energy - harmonic_energy
+                        
+                        if noise_energy > 0:
+                            harmonic_energies.append(harmonic_energy)
+                            noise_energies.append(noise_energy)
+            
+            if harmonic_energies and noise_energies:
+                avg_harmonic = sum(harmonic_energies) / len(harmonic_energies)
+                avg_noise = sum(noise_energies) / len(noise_energies)
+                
+                if avg_noise > 0:
+                    features['hnr_approx'] = float(10 * math.log10(avg_harmonic / avg_noise))
+                else:
+                    features['hnr_approx'] = 20.0  # High HNR if no noise
+            else:
+                features['hnr_approx'] = 10.0  # Default moderate value
+                
+        except Exception as e:
+            logger.warning(f"HNR extraction failed: {e}")
+            features['hnr_approx'] = 10.0
         
         return features
         

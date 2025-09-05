@@ -29,3 +29,6 @@ venv
 *_pycache_/*
 .pytest_cache
 *.egg-info
+artifacts/*
+*.pyc
+_pycache_
