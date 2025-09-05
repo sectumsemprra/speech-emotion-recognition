@@ -187,75 +187,152 @@ def extract_audio_features(audio_path: str) -> Dict[str, float]:
         raise
 
 def classify_gender(features: Dict[str, float]) -> Dict[str, Any]:
-    """Classify gender based on extracted DSP features - simplified and robust"""
+    """Classify gender based on extracted DSP features - comprehensive multi-feature approach"""
     
-    # Start with baseline probabilities
-    male_prob = 0.5
-    female_prob = 0.5
+    # Initialize feature scores (0 = neutral, positive = male, negative = female)
+    feature_scores = []
+    feature_weights = []
+    feature_details = {}
     
-    # F0 is the most reliable - weight it heavily
+    # 1. Fundamental Frequency (F0) - Primary indicator (weight: 0.4)
     f0_mean = features.get('f0_mean', 0)
-    
-    logger.info(f"CLASSIFICATION DEBUG - F0 mean: {f0_mean}Hz")
+    f0_score = 0
+    f0_weight = 0.4
     
     if f0_mean > 50:  # Valid F0
-        if f0_mean <= 120:  # Very deep male voice
-            male_prob = 0.95
-            female_prob = 0.05
-        elif f0_mean <= 150:  # Typical male
-            male_prob = 0.85
-            female_prob = 0.15
-        elif f0_mean <= 170:  # Low male or very deep female
-            male_prob = 0.70
-            female_prob = 0.30
-        elif f0_mean <= 190:  # Boundary region - lean male
-            male_prob = 0.60
-            female_prob = 0.40
-        elif f0_mean <= 210:  # Boundary region - lean female
-            male_prob = 0.40
-            female_prob = 0.60
-        elif f0_mean <= 240:  # Typical female
-            male_prob = 0.15
-            female_prob = 0.85
-        else:  # High female voice
-            male_prob = 0.05
-            female_prob = 0.95
-            
-        logger.info(f"After F0 analysis - Male: {male_prob:.3f}, Female: {female_prob:.3f}")
-    else:
-        logger.info("No valid F0 found - using secondary features")
+        if f0_mean <= 120:
+            f0_score = 0.9  # Strong male
+        elif f0_mean <= 150:
+            f0_score = 0.6  # Male
+        elif f0_mean <= 170:
+            f0_score = 0.3  # Lean male
+        elif f0_mean <= 190:
+            f0_score = 0.1  # Slight male
+        elif f0_mean <= 210:
+            f0_score = -0.1  # Slight female
+        elif f0_mean <= 240:
+            f0_score = -0.6  # Female
+        else:
+            f0_score = -0.9  # Strong female
         
-        # Fallback to spectral features if F0 fails
-        spectral_centroid = features.get('spectral_centroid_mean', 0)
+        feature_scores.append(f0_score)
+        feature_weights.append(f0_weight)
+        feature_details['f0'] = {'value': f0_mean, 'score': f0_score, 'weight': f0_weight}
+    
+    # 2. Spectral Centroid - Voice brightness (weight: 0.25)
+    spectral_centroid = features.get('spectral_centroid_mean', 0)
+    if spectral_centroid > 1000:  # Valid spectral data
+        sc_score = 0
+        sc_weight = 0.25
         
-        if spectral_centroid > 1000:  # Valid spectral data
-            if spectral_centroid < 1800:  # Dark
-                male_prob = 0.75
-                female_prob = 0.25
-            elif spectral_centroid > 2800:  # Bright
-                male_prob = 0.25
-                female_prob = 0.75
-            # else keep 50/50
-            
-            logger.info(f"Using spectral centroid {spectral_centroid:.0f}Hz - Male: {male_prob:.3f}, Female: {female_prob:.3f}")
+        if spectral_centroid < 1600:
+            sc_score = 0.6  # Dark/low = male
+        elif spectral_centroid < 2000:
+            sc_score = 0.3  # Somewhat dark = lean male
+        elif spectral_centroid < 2400:
+            sc_score = 0.0  # Neutral
+        elif spectral_centroid < 2800:
+            sc_score = -0.3  # Bright = lean female
+        else:
+            sc_score = -0.6  # Very bright = female
+        
+        feature_scores.append(sc_score)
+        feature_weights.append(sc_weight)
+        feature_details['spectral_centroid'] = {'value': spectral_centroid, 'score': sc_score, 'weight': sc_weight}
     
-    # Minor adjustments based on other features (don't override F0 too much)
-    adjustment_factor = 0.1  # Small adjustments only
-    
-    # Formant check
+    # 3. Formant Analysis - Vocal tract characteristics (weight: 0.2)
     f1 = features.get('f1_approx', 0)
     f2 = features.get('f2_approx', 0)
     
     if f1 > 200 and f2 > 800:  # Valid formants
-        if f1 < 400 and f2 < 1100:  # Low formants = male
-            male_prob = min(0.95, male_prob + adjustment_factor)
-            female_prob = 1.0 - male_prob
-        elif f1 > 700 and f2 > 1600:  # High formants = female
-            female_prob = min(0.95, female_prob + adjustment_factor)
-            male_prob = 1.0 - female_prob
+        formant_score = 0
+        formant_weight = 0.2
+        
+        # Male typical: F1 ~300-600Hz, F2 ~900-1300Hz
+        # Female typical: F1 ~400-800Hz, F2 ~1300-2100Hz
+        
+        if f1 < 450 and f2 < 1200:  # Low formants = male
+            formant_score = 0.7
+        elif f1 < 550 and f2 < 1400:  # Somewhat low = lean male
+            formant_score = 0.4
+        elif f1 > 650 and f2 > 1600:  # High formants = female
+            formant_score = -0.7
+        elif f1 > 550 and f2 > 1400:  # Somewhat high = lean female
+            formant_score = -0.4
+        # else neutral (0)
+        
+        feature_scores.append(formant_score)
+        feature_weights.append(formant_weight)
+        feature_details['formants'] = {'f1': f1, 'f2': f2, 'score': formant_score, 'weight': formant_weight}
+    
+    # 4. MFCC Analysis - Vocal tract shape (weight: 0.1)
+    mfcc_1_mean = features.get('mfcc_1_mean', None)
+    mfcc_2_mean = features.get('mfcc_2_mean', None)
+    
+    if mfcc_1_mean is not None and mfcc_2_mean is not None:
+        mfcc_score = 0
+        mfcc_weight = 0.1
+        
+        # MFCC coefficients tend to be different for male/female
+        # This is a simplified heuristic based on typical patterns
+        if mfcc_1_mean < -20:  # Lower MFCC1 often indicates male
+            mfcc_score += 0.3
+        elif mfcc_1_mean > -10:  # Higher MFCC1 often indicates female
+            mfcc_score -= 0.3
+        
+        if mfcc_2_mean > 10:  # Higher MFCC2 variation
+            mfcc_score -= 0.2  # Often female
+        elif mfcc_2_mean < 0:
+            mfcc_score += 0.2  # Often male
+        
+        feature_scores.append(mfcc_score)
+        feature_weights.append(mfcc_weight)
+        feature_details['mfcc'] = {'mfcc1': mfcc_1_mean, 'mfcc2': mfcc_2_mean, 'score': mfcc_score, 'weight': mfcc_weight}
+    
+    # 5. Harmonic-to-Noise Ratio - Voice quality (weight: 0.05)
+    hnr = features.get('hnr_approx', None)
+    if hnr is not None:
+        hnr_score = 0
+        hnr_weight = 0.05
+        
+        # Males often have slightly lower HNR due to vocal fold differences
+        if hnr < 10:
+            hnr_score = 0.3  # Lower HNR = lean male
+        elif hnr > 18:
+            hnr_score = -0.3  # Higher HNR = lean female
+        
+        feature_scores.append(hnr_score)
+        feature_weights.append(hnr_weight)
+        feature_details['hnr'] = {'value': hnr, 'score': hnr_score, 'weight': hnr_weight}
+    
+    # Calculate weighted average score
+    if len(feature_scores) == 0:
+        # No valid features found
+        male_prob = 0.5
+        female_prob = 0.5
+        weighted_score = 0
+        logger.warning("No valid features found for gender classification")
+    else:
+        # Normalize weights to sum to 1
+        total_weight = sum(feature_weights)
+        if total_weight > 0:
+            normalized_weights = [w / total_weight for w in feature_weights]
+            weighted_score = sum(score * weight for score, weight in zip(feature_scores, normalized_weights))
+        else:
+            weighted_score = 0
+        
+        # Convert weighted score to probabilities using sigmoid-like function
+        # Score ranges from -1 (strong female) to +1 (strong male)
+        sigmoid_factor = 4  # Controls steepness of probability curve
+        male_prob = 1 / (1 + np.exp(-sigmoid_factor * weighted_score))
+        female_prob = 1.0 - male_prob
+        
+        # Ensure reasonable bounds
+        male_prob = max(0.05, min(0.95, male_prob))
+        female_prob = 1.0 - male_prob
     
     # Determine final prediction
-    if abs(male_prob - female_prob) < 0.05:  # Very close
+    if abs(male_prob - female_prob) < 0.1:  # Very close
         predicted_gender = "unknown"
         confidence = 0.5
     elif male_prob > female_prob:
@@ -265,7 +342,14 @@ def classify_gender(features: Dict[str, float]) -> Dict[str, Any]:
         predicted_gender = "female"
         confidence = female_prob
     
+    # Enhanced logging
+    logger.info(f"=== MULTI-FEATURE GENDER CLASSIFICATION ===")
+    for feature_name, details in feature_details.items():
+        logger.info(f"{feature_name}: {details}")
+    logger.info(f"Final weighted score: {weighted_score:.3f}")
+    logger.info(f"Male probability: {male_prob:.3f}, Female probability: {female_prob:.3f}")
     logger.info(f"FINAL DECISION - Gender: {predicted_gender}, Confidence: {confidence:.3f}")
+    logger.info("=== END CLASSIFICATION ===")
     
     return {
         "gender": predicted_gender,
@@ -276,10 +360,15 @@ def classify_gender(features: Dict[str, float]) -> Dict[str, Any]:
         },
         "features_used": {
             "f0_mean": f0_mean,
-            "spectral_centroid": features.get('spectral_centroid_mean', 0),
+            "spectral_centroid": spectral_centroid,
             "f1_approx": f1,
-            "f2_approx": f2
-        }
+            "f2_approx": f2,
+            "mfcc_1_mean": mfcc_1_mean,
+            "mfcc_2_mean": mfcc_2_mean,
+            "hnr_approx": hnr,
+        },
+        "feature_analysis": feature_details,
+        "classification_method": "multi-feature_weighted_scoring"
     }
 
 app = FastAPI(
