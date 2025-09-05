@@ -28,36 +28,40 @@ type PresetMap = Record<string, FilterPreset>;
 
 /** Fallback presets (used if backend fetch fails) */
 const FALLBACK_PRESETS: PresetMap = {
+  
   telephone: {
     filter_type: 'bandpass',
     low_cutoff: 300,
     high_cutoff: 3400,
-    description: 'Telephone bandwidth (300–3400 Hz)',
+    description: 'Telephone bandwidth (300–3400 Hz) — removes very low rumble and high frequencies beyond voice range.',
   },
   speech: {
     filter_type: 'bandpass',
-    low_cutoff: 85,
+    low_cutoff: 80,
     high_cutoff: 8000,
-    description: 'Human speech range (85–8000 Hz)',
+    description: 'Typical speech range (80–8000 Hz) — keeps full speech clarity while removing unnecessary extremes.',
   },
   voice_fundamental: {
     filter_type: 'bandpass',
-    low_cutoff: 80,
-    high_cutoff: 1000,
-    description: 'Voice fundamental (80–1000 Hz)',
+    low_cutoff: 85,
+    high_cutoff: 255,
+    description: 'Fundamental frequency of human voice (approx. 85–180 Hz male, 165–255 Hz female).',
   },
   noise_reduction: {
-    filter_type: 'highpass',
-    cutoff: 100,
-    description: 'Remove low-frequency noise (>100 Hz)',
+    filter_type: 'lowpass',
+    cutoff: 4000,
+    description: 'Reduce high-frequency noise by keeping content below 4 kHz.',
   },
   no_filter: {
-    filter_type: 'none',
-    description: 'No filtering',
+    filter_type: 'highpass',
+    cutoff: 100,
+    description: 'Remove low-frequency rumble and mic handling noise (<100 Hz).',
   },
+
+
 };
 
-const BASE_URL ="https://cf9f55025249.ngrok-free.app";
+const BASE_URL ="https://06cc7a0499c3.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -314,54 +318,38 @@ const DetectEmotion = () => {
         </div>
 
         {/* DSP Filter Preset Selector */}
-        <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white mb-4">DSP Filter Preset</h2>
-            {presetsLoading && (
-              <span className="text-sm text-blue-200">Loading presets…</span>
-            )}
-          </div>
+        {/* DSP Filter Preset Selector */}
+<div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
+  <div className="flex items-center justify-between">
+    <h2 className="text-xl font-bold text-white mb-4">DSP Filter Preset</h2>
+    {presetsLoading && (
+      <span className="text-sm text-blue-200">Loading presets…</span>
+    )}
+  </div>
 
-          <div className="flex items-center gap-4">
-            <select
-              disabled={presetsLoading || !Object.keys(filterPresets).length}
-              value={selectedPreset}
-              onChange={(e) => setSelectedPreset(e.target.value)}
-              className={`px-4 py-2 rounded-xl bg-white/10 text-blue-200 ${
-                presetsLoading ? 'opacity-60 cursor-not-allowed' : ''
-              }`}
-            >
-              {Object.entries(filterPresets).map(([key, preset]) => (
-                <option key={key} value={key}>
-                  {key.replace(/_/g, ' ')} — {preset.description}
-                </option>
-              ))}
-            </select>
+  <div className="flex items-center gap-4">
+    <select
+      disabled={presetsLoading || !Object.keys(filterPresets).length}
+      value={selectedPreset}
+      onChange={(e) => setSelectedPreset(e.target.value)}
+      className={`px-4 py-2 rounded-xl bg-white/10 text-blue-200 ${
+        presetsLoading ? 'opacity-60 cursor-not-allowed' : ''
+      }`}
+    >
+      {/* Hardcode ONLY names (no descriptions) */}
+      <option value="telephone">Telephone</option>
+      <option value="speech">Speech</option>
+      <option value="voice_fundamental">Voice Fundamental</option>
+      <option value="noise_reduction">Noise Reduction</option>
+      <option value="no_filter">No Filter</option>
+    </select>
+  </div>
 
-            {/* Small live summary of the chosen preset to reassure it's applied */}
-            {currentPreset && (
-              <div className="text-blue-200 text-sm">
-                <span className="block">
-                  <b>Type:</b> {currentPreset.filter_type}
-                </span>
-                {currentPreset.filter_type === 'bandpass' && (
-                  <span className="block">
-                    <b>Band:</b> {currentPreset.low_cutoff}–{currentPreset.high_cutoff} Hz
-                  </span>
-                )}
-                {currentPreset.filter_type !== 'bandpass' && currentPreset.cutoff !== undefined && (
-                  <span className="block">
-                    <b>Cutoff:</b> {currentPreset.cutoff} Hz
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+  {presetsError && (
+    <p className="mt-2 text-xs text-yellow-300">{presetsError}</p>
+  )}
+</div>
 
-          {presetsError && (
-            <p className="mt-2 text-xs text-yellow-300">{presetsError}</p>
-          )}
-        </div>
 
         {/* Detection Method Selector */}
         <div className="bg-white/5 backdrop-blur-sm rounded-3xl p-6 border border-white/10 mb-8">
