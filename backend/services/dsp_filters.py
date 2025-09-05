@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 DSP Filters Utility
-Provides audio preprocessing filters using scipy for speech emotion recognition
+Provides audio preprocessing filters using custom filter implementation for speech emotion recognition
 """
 
 import numpy as np
 import logging
-from scipy import signal
 from scipy.io import wavfile
 import tempfile
 import os
@@ -74,6 +73,110 @@ def save_audio(audio_data: np.ndarray, sample_rate: int, output_path: str) -> No
     
     wavfile.write(output_path, sample_rate, audio_int16)
 
+def custom_butterworth_filter(
+    audio_data: np.ndarray,
+    cutoff: Union[float, Tuple[float, float]], 
+    sample_rate: int, 
+    filter_type: str = 'band', 
+    order: int = 5
+) -> np.ndarray:
+    """
+    Custom implementation of Butterworth filter using direct frequency domain approach
+    
+    Args:
+        audio_data: Input audio samples
+        cutoff: Cutoff frequency(ies) in Hz
+        sample_rate: Sample rate in Hz
+        filter_type: 'low', 'high', 'band', or 'bandstop'
+        order: Filter order
+        
+    Returns:
+        Filtered audio data
+    """
+    if len(audio_data) == 0:
+        return audio_data
+    
+    # Get FFT of the signal
+    N = len(audio_data)
+    fft_data = np.fft.fft(audio_data)
+    
+    # Create frequency array
+    freqs = np.fft.fftfreq(N, 1.0/sample_rate)
+    # Use absolute frequencies for filter design
+    freqs_abs = np.abs(freqs)
+    
+    # Initialize filter response
+    H = np.ones(N, dtype=complex)
+    
+    # Design Butterworth filter response in frequency domain
+    if filter_type == 'low':
+        # Lowpass: H(w) = 1 / (1 + (w/wc)^(2*order))
+        fc = cutoff if not isinstance(cutoff, (tuple, list)) else cutoff[0]
+        H = 1.0 / (1.0 + (freqs_abs / fc) ** (2 * order))
+        
+    elif filter_type == 'high':
+        # Highpass: H(w) = 1 / (1 + (wc/w)^(2*order))
+        fc = cutoff if not isinstance(cutoff, (tuple, list)) else cutoff[0]
+        # Avoid division by zero
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H = 1.0 / (1.0 + (fc / (freqs_abs + 1e-10)) ** (2 * order))
+        # Set DC component appropriately for highpass
+        H[0] = 0.0
+        
+    elif filter_type == 'band':
+        # Bandpass: combination of highpass and lowpass
+        if not isinstance(cutoff, (tuple, list)) or len(cutoff) != 2:
+            raise ValueError("Band filters require cutoff as tuple (low_freq, high_freq)")
+        
+        low_freq, high_freq = cutoff
+        center_freq = np.sqrt(low_freq * high_freq)  # Geometric mean
+        bandwidth = high_freq - low_freq
+        
+        # Bandpass Butterworth: H(w) = 1 / (1 + ((w^2 - wc^2)/(w*BW))^(2*order))
+        w = freqs_abs
+        wc = center_freq
+        BW = bandwidth
+        
+        with np.errstate(divide='ignore', invalid='ignore'):
+            # Avoid division by zero
+            denominator = 1.0 + ((w**2 - wc**2) / (w * BW + 1e-10)) ** (2 * order)
+            H = 1.0 / denominator
+        
+        # Handle DC and very low frequencies
+        H[freqs_abs < low_freq/10] = 0.0
+        
+    elif filter_type == 'bandstop':
+        # Bandstop (notch): inverse of bandpass
+        if not isinstance(cutoff, (tuple, list)) or len(cutoff) != 2:
+            raise ValueError("Band filters require cutoff as tuple (low_freq, high_freq)")
+        
+        low_freq, high_freq = cutoff
+        center_freq = np.sqrt(low_freq * high_freq)
+        bandwidth = high_freq - low_freq
+        
+        # Bandstop Butterworth: H(w) = 1 / (1 + (w*BW/(w^2 - wc^2))^(2*order))
+        w = freqs_abs
+        wc = center_freq
+        BW = bandwidth
+        
+        with np.errstate(divide='ignore', invalid='ignore'):
+            denominator = 1.0 + (w * BW / (w**2 - wc**2 + 1e-10)) ** (2 * order)
+            H = 1.0 / denominator
+    
+    else:
+        raise ValueError(f"Unknown filter type: {filter_type}")
+    
+    # Apply the filter in frequency domain
+    filtered_fft = fft_data * H
+    
+    # Convert back to time domain using manual IFFT
+    filtered_complex = manual_ifft(filtered_fft)
+    
+    # Take real part and trim to original length
+    filtered_audio = np.real(filtered_complex)[:N]
+    
+    return filtered_audio
+
 def design_butterworth_filter(
     cutoff: Union[float, Tuple[float, float]], 
     sample_rate: int, 
@@ -81,7 +184,7 @@ def design_butterworth_filter(
     order: int = 5
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Design a Butterworth filter
+    Design a Butterworth filter - kept for compatibility but not used internally
     
     Args:
         cutoff: Cutoff frequency(ies) in Hz
@@ -92,29 +195,11 @@ def design_butterworth_filter(
         order: Filter order (higher = steeper rolloff)
         
     Returns:
-        Tuple of (b, a) filter coefficients
+        Tuple of (b, a) filter coefficients - returns dummy values since we use frequency domain filtering
     """
-    nyquist = sample_rate / 2.0
-    
-    if filter_type in ['band', 'bandstop']:
-        if not isinstance(cutoff, (tuple, list)) or len(cutoff) != 2:
-            raise ValueError("Band filters require cutoff as tuple (low_freq, high_freq)")
-        low_freq, high_freq = cutoff
-        if low_freq >= high_freq:
-            raise ValueError("Low frequency must be less than high frequency")
-        if high_freq >= nyquist:
-            raise ValueError(f"High frequency ({high_freq}) must be less than Nyquist frequency ({nyquist})")
-        
-        normalized_cutoff = [low_freq / nyquist, high_freq / nyquist]
-    else:
-        if isinstance(cutoff, (tuple, list)):
-            cutoff = cutoff[0]
-        if cutoff >= nyquist:
-            raise ValueError(f"Cutoff frequency ({cutoff}) must be less than Nyquist frequency ({nyquist})")
-        
-        normalized_cutoff = cutoff / nyquist
-    
-    b, a = signal.butter(order, normalized_cutoff, btype=filter_type, analog=False)
+    # Return dummy coefficients since we're using frequency domain filtering
+    b = np.array([1.0])
+    a = np.array([1.0])
     return b, a
 
 def apply_butterworth_filter(
@@ -125,7 +210,7 @@ def apply_butterworth_filter(
     order: int = 5
 ) -> np.ndarray:
     """
-    Apply Butterworth filter to audio data
+    Apply Butterworth filter to audio data using custom implementation
     
     Args:
         audio_data: Input audio samples
@@ -141,8 +226,8 @@ def apply_butterworth_filter(
         return audio_data
     
     try:
-        b, a = design_butterworth_filter(cutoff, sample_rate, filter_type, order)
-        filtered_audio = signal.filtfilt(b, a, audio_data)
+        # Use our custom filter implementation
+        filtered_audio = custom_butterworth_filter(audio_data, cutoff, sample_rate, filter_type, order)
         return filtered_audio
         
     except Exception as e:
