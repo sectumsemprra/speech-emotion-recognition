@@ -596,7 +596,7 @@ async def predict_emotion(
     high_cutoff: float = Query(3400.0, description="High cutoff frequency (Hz) for bandpass"),
     cutoff: Optional[float] = Query(None, description="Single cutoff frequency (Hz) for lowpass/highpass"),
     filter_order: int = Query(5, description="Filter order (1-10)"),
-    use_hardcoded_dsp: bool = Query(True, description="Use hardcoded DSP methods (True) or library functions (False)")
+    use_hardcoded_dsp: bool = Query(True, description="Use hardcoded DSP methods (True) or library functions (False)"),
     manual = False
     # manual: bool = Query(False, description="Use manual DSP implementations (slower but educational)")
 ):

@@ -183,7 +183,7 @@ const DetectEmotion = () => {
               try {
                 return JSON.parse(text);
               } catch (e) {
-                console.error('Failed to parse JSON response:', text);
+                console.error('Failed to parse JSON response:', text, e);
                 throw new Error('Invalid JSON response from server');
               }
             })
@@ -208,7 +208,7 @@ const DetectEmotion = () => {
               try {
                 return JSON.parse(text);
               } catch (e) {
-                console.error('Failed to parse JSON response:', text);
+                console.error('Failed to parse JSON response:', text, e);
                 throw new Error('Invalid JSON response from server');
               }
             })
