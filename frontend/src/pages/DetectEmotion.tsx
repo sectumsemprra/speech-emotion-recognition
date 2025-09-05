@@ -57,7 +57,7 @@ const FALLBACK_PRESETS: PresetMap = {
   },
 };
 
-const BASE_URL = "https://4ac0e45de380.ngrok-free.app";
+const BASE_URL = "https://29b7076e19d8.ngrok-free.app";
 
 const DetectEmotion = () => {
   const [emotionResult, setEmotionResult] = useState<EmotionData | null>(null);
@@ -169,7 +169,18 @@ const DetectEmotion = () => {
             method: 'POST',
             body: emotionFormData,
           })
-            .then((res) => res.json())
+            .then(async (res) => {
+              if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+              }
+              const text = await res.text();
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.error('Failed to parse JSON response:', text);
+                throw new Error('Invalid JSON response from server');
+              }
+            })
             .then((data) => ({ type: 'emotion', data }))
         );
       }
@@ -183,7 +194,18 @@ const DetectEmotion = () => {
             method: 'POST',
             body: genderFormData,
           })
-            .then((res) => res.json())
+            .then(async (res) => {
+              if (!res.ok) {
+                throw new Error(`HTTP error! status: ${res.status}`);
+              }
+              const text = await res.text();
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.error('Failed to parse JSON response:', text);
+                throw new Error('Invalid JSON response from server');
+              }
+            })
             .then((data) => ({ type: 'gender', data }))
         );
       }
@@ -213,7 +235,7 @@ const DetectEmotion = () => {
       }
       if (analysisType === 'gender' || analysisType === 'both') {
         setGenderResult({
-          gender: 'unknown',
+          gender: 'Error',
           confidence: 0,
           method: 'error',
           scores: { male_score: 0, female_score: 0 },

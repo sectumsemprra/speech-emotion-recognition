@@ -15,7 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
 from pyngrok import ngrok
-from services.gender_classifier import classify_gender
+# Import gender classification functions from gender_service.py
+from gender_service import extract_audio_features, classify_gender as classify_gender_dsp
 from services.dsp_preprocess import dsp_preprocess
 from services.emotion_timeline import compute_emotion_timeline
 from fastapi.staticfiles import StaticFiles
@@ -123,10 +124,15 @@ def detect_emotion_from_file(
         best_emotion = emotions[best_idx]
         confidence = float(scores[best_idx])
         
+        # Replace <unk> with neutral for better user experience
+        if best_emotion == '<unk>':
+            best_emotion = 'neutral'
+        
         # Sort all emotions by score
         emotion_pairs = list(zip(emotions, scores))
         sorted_emotions = sorted(emotion_pairs, key=lambda x: x[1], reverse=True)
-        top_emotions = [{"emotion": e, "score": float(s)} for e, s in sorted_emotions]
+        # Replace <unk> with neutral in the top emotions list too
+        top_emotions = [{"emotion": "neutral" if e == "<unk>" else e, "score": float(s)} for e, s in sorted_emotions]
         
         artifact_urls = [f"/artifacts/{os.path.basename(os.path.dirname(p))}/{os.path.basename(p)}" for p in artifacts]
         processed_url = f"/artifacts/{os.path.basename(os.path.dirname(processed_wav))}/{os.path.basename(processed_wav)}"
@@ -350,8 +356,20 @@ async def classify_gender_endpoint(
                     logger.warning(f"DSP preprocessing failed for gender classification: {e}")
                     processed_audio_path = temp_path
             
-            # Run gender classification
-            result = classify_gender(processed_audio_path, method='auto')
+            # Run gender classification using gender_service.py functions
+            logger.info(f"Extracting features from: {audio.filename}")
+            features = extract_audio_features(processed_audio_path)
+            
+            # Comprehensive debug logging
+            logger.info("=== FEATURE EXTRACTION DEBUG ===")
+            for key, value in features.items():
+                logger.info(f"{key}: {value}")
+            logger.info("=== END FEATURES ===")
+            
+            # Classify gender
+            result = classify_gender_dsp(features)
+            
+            # Add preprocessing info to result
             result['preprocessing'] = {
                 "filter_applied": filter_applied,
                 "filter_info": filter_info
@@ -436,7 +454,7 @@ async def service_info():
         "version": "1.1.0",
         "models": {
             "emotion": "emotion2vec_plus_large",
-            "gender": "DSP-based threshold classifier"
+            "gender": "DSP-based classifier (F0, MFCC, Formants, Spectral Analysis)"
         },
         "dsp_features": {
             "filters": ["bandpass", "lowpass", "highpass", "none"],

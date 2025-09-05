@@ -7,6 +7,18 @@ interface GenderResultProps {
 }
 
 const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
+  // Debug logging to understand the data structure
+  console.log('GenderResult received data:', data);
+  
+  // Safety check - if data is null or undefined, show error state
+  if (!data) {
+    return (
+      <div className="text-center py-12">
+        <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+        <div className="text-white text-lg">No gender data available</div>
+      </div>
+    );
+  }
   const getGenderIcon = (gender: string) => {
     const genderLower = gender.toLowerCase();
     switch (genderLower) {
@@ -61,7 +73,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
         <div className="text-blue-100 mb-4">
           <span className="text-lg">Confidence: </span>
           <span className="text-xl font-semibold text-white">
-            {(data.confidence * 100).toFixed(1)}%
+            {((data.confidence || 0) * 100).toFixed(1)}%
           </span>
         </div>
 
@@ -69,7 +81,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
         <div className="w-full bg-white/10 rounded-full h-3 mb-6">
           <div 
             className={`bg-gradient-to-r ${getGenderColor(data.gender)} h-3 rounded-full transition-all duration-1000 ease-out`}
-            style={{ width: `${data.confidence * 100}%` }}
+            style={{ width: `${(data.confidence || 0) * 100}%` }}
           ></div>
         </div>
       </div>
@@ -90,11 +102,11 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
               <div className="w-24 bg-white/10 rounded-full h-2">
                 <div 
                   className="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${(data.scores.male_score || 0) * 100}%` }}
+                  style={{ width: `${((data.probabilities?.male || data.scores?.male_score || 0) * 100)}%` }}
                 ></div>
               </div>
               <span className="text-blue-100 text-sm w-12 text-right">
-                {((data.scores.male_score || 0) * 100).toFixed(1)}%
+                {((data.probabilities?.male || data.scores?.male_score || 0) * 100).toFixed(1)}%
               </span>
             </div>
           </div>
@@ -108,11 +120,11 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
               <div className="w-24 bg-white/10 rounded-full h-2">
                 <div 
                   className="bg-gradient-to-r from-pink-400 to-pink-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${(data.scores.female_score || 0) * 100}%` }}
+                  style={{ width: `${((data.probabilities?.female || data.scores?.female_score || 0) * 100)}%` }}
                 ></div>
               </div>
               <span className="text-blue-100 text-sm w-12 text-right">
-                {((data.scores.female_score || 0) * 100).toFixed(1)}%
+                {((data.probabilities?.female || data.scores?.female_score || 0) * 100).toFixed(1)}%
               </span>
             </div>
           </div>
@@ -129,7 +141,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Fundamental Frequency</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.feature_analysis.f0_hz)}
+              {formatFrequency(data.feature_analysis?.f0_hz || data.features_used?.f0_mean || 0)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Pitch of voice (key indicator)
@@ -139,7 +151,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Spectral Centroid</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.feature_analysis.spectral_centroid_hz)}
+              {formatFrequency(data.feature_analysis?.spectral_centroid_hz || data.features_used?.spectral_centroid || 0)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Voice brightness measure
@@ -149,7 +161,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">First Formant (F1)</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.feature_analysis.f1_hz)}
+              {formatFrequency(data.feature_analysis?.f1_hz || data.features_used?.f1_approx || 0)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Vocal tract resonance
@@ -159,7 +171,7 @@ const GenderResult: React.FC<GenderResultProps> = ({ data }) => {
           <div className="bg-white/5 rounded-lg p-4">
             <div className="text-sm text-blue-200">Second Formant (F2)</div>
             <div className="text-lg font-semibold text-white">
-              {formatFrequency(data.feature_analysis.f2_hz)}
+              {formatFrequency(data.feature_analysis?.f2_hz || data.features_used?.f2_approx || 0)}
             </div>
             <div className="text-xs text-blue-300 mt-1">
               Vowel characteristics

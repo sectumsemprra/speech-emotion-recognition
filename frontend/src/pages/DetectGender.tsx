@@ -8,11 +8,15 @@ export interface GenderData {
   gender: string;
   confidence: number;
   method?: string;
-  scores: {
+  scores?: {
     male_score: number;
     female_score: number;
   };
-  feature_analysis: {
+  probabilities?: {
+    male: number;
+    female: number;
+  };
+  feature_analysis?: {
     f0_hz: number;
     spectral_centroid_hz: number;
     f1_hz: number;
@@ -20,7 +24,17 @@ export interface GenderData {
     feature_votes?: any;
     feature_confidences?: any;
   };
+  features_used?: {
+    f0_mean: number;
+    spectral_centroid: number;
+    f1_approx: number;
+    f2_approx: number;
+  };
   all_features: Record<string, number>;
+  preprocessing?: {
+    filter_applied: boolean;
+    filter_info: any;
+  };
 }
 
 const DetectGender = () => {
@@ -52,16 +66,18 @@ const DetectGender = () => {
       setGenderResult({
         gender: "Error",
         confidence: 0,
-        probabilities: {
-          male: 0.5,
-          female: 0.5
+        method: "error",
+        scores: {
+          male_score: 0,
+          female_score: 0
         },
-        features_used: {
-          f0_mean: 0,
-          spectral_centroid: 0,
-          f1_approx: 0,
-          f2_approx: 0
-        }
+        feature_analysis: {
+          f0_hz: 0,
+          spectral_centroid_hz: 0,
+          f1_hz: 0,
+          f2_hz: 0
+        },
+        all_features: {}
       });
     } finally {
       setIsAnalyzing(false);
